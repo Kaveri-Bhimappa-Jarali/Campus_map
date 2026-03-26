@@ -1,12 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import campusMap from "../assets/campus-map.jpg";
+import { Loader } from "@googlemaps/js-api-loader";
 import nodes from "./nodes";
-import graph from "./graph";
+import campusGraph from "./graph";
 
-// `campus-map.jpg` is ~600x456 (not 16:9). Keep our coordinate system aligned to it.
-const MAP_W = 600;
-const MAP_H = 456;
-const toPct = (x, y) => ({ xPct: (x / MAP_W) * 100, yPct: (y / MAP_H) * 100 });
+// SDMCET (Dharwad) campus center (approx; used as map initial center).
+// Source: public references (Wikipedia/GeoHack). You can adjust anytime.
+const CAMPUS_CENTER = { lat: 15.430333, lng: 75.01475 };
+
+// Rough campus span (degrees). Used to convert legacy image-relative pin positions into a
+// reasonable "starting" placement on the Google Map. You can then drag pins to exact spots.
+const DEFAULT_SPAN = { dLat: 0.004, dLng: 0.004 };
+
+function legacyPctToLatLng(xPct, yPct, center = CAMPUS_CENTER, span = DEFAULT_SPAN) {
+  // xPct: 0..100 left->right, yPct: 0..100 top->bottom
+  const lng = center.lng + ((xPct - 50) / 100) * span.dLng;
+  const lat = center.lat + ((50 - yPct) / 100) * span.dLat;
+  return { lat, lng };
+}
 
 function floorBadgeFromDetails(details) {
   if (!details?.floors?.length) return null;
@@ -51,6 +61,16 @@ const PLACE_DETAILS = {
     locationHint: "ISE block",
     floors: ["Second Floor – Information Science Engineering"],
   },
+  ece: {
+    title: "Electronics and Communication Engineering (ECE)",
+    locationHint: "ECE / EEE / ISE block",
+    floors: ["First Floor – Electronics and Communication Engineering"],
+  },
+  eee: {
+    title: "Electrical and Electronics Engineering (EEE)",
+    locationHint: "ECE / EEE / ISE block",
+    floors: ["Ground Floor – Electrical and Electronics Engineering"],
+  },
   aiml: {
     title: "AI & ML (AIML)",
     locationHint: "Near Mechanical block",
@@ -89,157 +109,237 @@ const PLACE_DETAILS = {
   "main-entrance": { title: "Main Entrance", locationHint: "Entry point to campus", floors: [] },
 };
 
-function bfs(start, end, g) {
-  if (!start || !end) return [];
-  const queue = [[start]];
-  const visited = new Set();
+// Pins are based on your legacy image coordinates (600x456). We convert them to lat/lng for
+// initial placement on Google Maps, then allow precise drag-adjustments stored in localStorage.
+const LEGACY_MAP_W = 600;
+const LEGACY_MAP_H = 456;
+const toLegacyPct = (x, y) => ({ xPct: (x / LEGACY_MAP_W) * 100, yPct: (y / LEGACY_MAP_H) * 100 });
+
+// Department pin anchors tuned against the SDMCET layout reference image.
+const DEPARTMENT_PIN_POS = {
+  cse: { x: 204, y: 191 }, // CSE in Admin/Auditorium/CSE cluster
+  ise: { x: 170, y: 210 }, // ISE in EEE/ECE/ISE block
+  ece: { x: 161, y: 218 }, // ECE in same block (first floor)
+  eee: { x: 178, y: 201 }, // EEE in same block (ground floor)
+  aiml: { x: 291, y: 141 }, // AIML shown near Mechanical side in current campus mapping
+  mechanical: { x: 281, y: 139 },
+  civil: { x: 241, y: 211 },
+  chemical: { x: 244, y: 181 },
+};
+
+function haversineMeters(a, b) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const x =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  return R * c;
+}
+
+function shortestCampusPath(graph, startNode, endNode) {
+  if (!startNode || !endNode) return null;
+  if (startNode === endNode) return [startNode];
+  const queue = [[startNode]];
+  const visited = new Set([startNode]);
   while (queue.length) {
     const path = queue.shift();
-    const node = path[path.length - 1];
-    if (node === end) return path;
-    if (visited.has(node)) continue;
-    visited.add(node);
-    for (const next of g[node] || []) queue.push([...path, next]);
+    const last = path[path.length - 1];
+    const nextNodes = graph[last] || [];
+    for (const n of nextNodes) {
+      if (visited.has(n)) continue;
+      const nextPath = [...path, n];
+      if (n === endNode) return nextPath;
+      visited.add(n);
+      queue.push(nextPath);
+    }
   }
-  return [];
+  return null;
 }
 
-function routeDistanceMeters(route) {
-  if (!route || route.length < 2) return 0;
-  let px = 0;
-  for (let i = 0; i < route.length - 1; i++) {
-    const a = nodes[route[i]];
-    const b = nodes[route[i + 1]];
-    if (!a || !b) continue;
-    const dx = a.x - b.x;
-    const dy = a.y - b.y;
-    px += Math.sqrt(dx * dx + dy * dy);
-  }
-  // Rough on-map conversion: ~0.35 meters per pixel (tune later if needed).
-  return px * 0.35;
-}
-
-function pointsToSmoothSvgPath(points) {
-  if (!points?.length) return "";
-  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
-
-  // Quadratic smoothing using midpoints.
-  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-  const parts = [`M ${points[0].x} ${points[0].y}`];
-  for (let i = 1; i < points.length - 1; i++) {
-    const m = mid(points[i], points[i + 1]);
-    parts.push(`Q ${points[i].x} ${points[i].y} ${m.x} ${m.y}`);
-  }
-  const last = points[points.length - 1];
-  parts.push(`T ${last.x} ${last.y}`);
-  return parts.join(" ");
-}
-
-// Map requested labels → existing routing nodes (from `nodes.js` + `graph.js`).
-// NOTE: ISE/AIML don’t exist as separate nodes in your graph, so they’re placed near the Admin/CSE
-// cluster visually, but route via the same `AuditoriumAdminCSE` node.
 const BASE_PINS = [
   {
     id: "cse",
     label: "CSE",
     group: "Departments",
     nodeKey: "CSEBlock",
-    ...toPct(nodes.CSEBlock.x, nodes.CSEBlock.y),
+    ...toLegacyPct(DEPARTMENT_PIN_POS.cse.x, DEPARTMENT_PIN_POS.cse.y),
   },
   {
     id: "ise",
     label: "ISE",
     group: "Departments",
     nodeKey: "ISEBlock",
-    // Place slightly away from CSE so the route is visually clear (and easy to tap).
-    ...toPct(nodes.ISEBlock.x, nodes.ISEBlock.y),
+    ...toLegacyPct(DEPARTMENT_PIN_POS.ise.x, DEPARTMENT_PIN_POS.ise.y),
+  },
+  {
+    id: "ece",
+    label: "ECE",
+    group: "Departments",
+    nodeKey: "ISEBlock",
+    ...toLegacyPct(DEPARTMENT_PIN_POS.ece.x, DEPARTMENT_PIN_POS.ece.y),
+  },
+  {
+    id: "eee",
+    label: "EEE",
+    group: "Departments",
+    nodeKey: "ISEBlock",
+    ...toLegacyPct(DEPARTMENT_PIN_POS.eee.x, DEPARTMENT_PIN_POS.eee.y),
   },
   {
     id: "aiml",
     label: "AIML",
     group: "Departments",
     nodeKey: "MechanicalBlock",
-    ...toPct(nodes.MechanicalBlock.x + 15, nodes.MechanicalBlock.y + 12),
+    ...toLegacyPct(DEPARTMENT_PIN_POS.aiml.x, DEPARTMENT_PIN_POS.aiml.y),
   },
   {
     id: "mechanical",
     label: "Mechanical",
     group: "Departments",
     nodeKey: "MechanicalBlock",
-    ...toPct(nodes.MechanicalBlock.x, nodes.MechanicalBlock.y),
+    ...toLegacyPct(DEPARTMENT_PIN_POS.mechanical.x, DEPARTMENT_PIN_POS.mechanical.y),
   },
   {
     id: "civil",
     label: "Civil",
     group: "Departments",
     nodeKey: "CivilBlock",
-    ...toPct(nodes.CivilBlock.x, nodes.CivilBlock.y),
+    ...toLegacyPct(DEPARTMENT_PIN_POS.civil.x, DEPARTMENT_PIN_POS.civil.y),
   },
   {
     id: "chemical",
     label: "Chemical",
     group: "Departments",
     nodeKey: "PhysicsChemistryBlock",
-    ...toPct(nodes.PhysicsChemistryBlock.x, nodes.PhysicsChemistryBlock.y),
+    ...toLegacyPct(DEPARTMENT_PIN_POS.chemical.x, DEPARTMENT_PIN_POS.chemical.y),
   },
   {
     id: "library",
     label: "Library",
     group: "Campus",
     nodeKey: "LibraryMBA",
-    ...toPct(nodes.LibraryMBA.x, nodes.LibraryMBA.y),
+    ...toLegacyPct(nodes.LibraryMBA.x, nodes.LibraryMBA.y),
+  },
+  {
+    id: "academic",
+    label: "Academic Area",
+    group: "Campus",
+    nodeKey: "AcademicArea",
+    ...toLegacyPct(nodes.AcademicArea.x, nodes.AcademicArea.y),
+  },
+  {
+    id: "auditorium-admin-cse",
+    label: "Auditorium / Admin / CSE",
+    group: "Campus",
+    nodeKey: "AuditoriumAdminCSE",
+    ...toLegacyPct(nodes.AuditoriumAdminCSE.x, nodes.AuditoriumAdminCSE.y),
   },
   {
     id: "temple",
     label: "Temple",
     group: "Campus",
     nodeKey: "Temple",
-    ...toPct(nodes.Temple.x, nodes.Temple.y),
+    ...toLegacyPct(nodes.Temple.x, nodes.Temple.y),
   },
   {
     id: "admin",
     label: "Administrative",
     group: "Campus",
     nodeKey: "AdministrativeBlock",
-    ...toPct(nodes.AdministrativeBlock.x, nodes.AdministrativeBlock.y),
+    ...toLegacyPct(nodes.AdministrativeBlock.x, nodes.AdministrativeBlock.y),
+  },
+  {
+    id: "bank",
+    label: "Bank / Post Office",
+    group: "Campus",
+    nodeKey: "BankPostOffice",
+    ...toLegacyPct(nodes.BankPostOffice.x, nodes.BankPostOffice.y),
+  },
+  {
+    id: "canteen",
+    label: "Canteen / SIC",
+    group: "Campus",
+    nodeKey: "CanteenSIC",
+    ...toLegacyPct(nodes.CanteenSIC.x, nodes.CanteenSIC.y),
+  },
+  {
+    id: "dining",
+    label: "Dining / Recreation",
+    group: "Campus",
+    nodeKey: "DiningRecreation",
+    ...toLegacyPct(nodes.DiningRecreation.x, nodes.DiningRecreation.y),
   },
   {
     id: "boys",
     label: "Boys Hostel",
     group: "Hostels",
     nodeKey: "BoysHostels",
-    ...toPct(nodes.BoysHostels.x, nodes.BoysHostels.y),
+    ...toLegacyPct(nodes.BoysHostels.x, nodes.BoysHostels.y),
   },
   {
     id: "girls",
     label: "Girls Hostel",
     group: "Hostels",
     nodeKey: "GirlsHostels",
-    ...toPct(nodes.GirlsHostels.x, nodes.GirlsHostels.y),
+    ...toLegacyPct(nodes.GirlsHostels.x, nodes.GirlsHostels.y),
   },
   {
     id: "playground",
     label: "Playground",
     group: "Sports",
     nodeKey: "Playground",
-    ...toPct(nodes.Playground.x, nodes.Playground.y),
+    ...toLegacyPct(nodes.Playground.x, nodes.Playground.y),
   },
   {
     id: "indoor",
     label: "Indoor Sports",
     group: "Sports",
     nodeKey: "IndoorSports",
-    ...toPct(nodes.IndoorSports.x, nodes.IndoorSports.y),
+    ...toLegacyPct(nodes.IndoorSports.x, nodes.IndoorSports.y),
+  },
+  {
+    id: "stp",
+    label: "STP",
+    group: "Campus",
+    nodeKey: "STP",
+    ...toLegacyPct(nodes.STP.x, nodes.STP.y),
   },
   {
     id: "main-entrance",
     label: "Main Entrance",
     group: "Campus",
     nodeKey: "MainEntrance",
-    ...toPct(nodes.MainEntrance.x, nodes.MainEntrance.y),
+    ...toLegacyPct(nodes.MainEntrance.x, nodes.MainEntrance.y),
   },
 ];
+
+// Keep UI focused on key navigation points only.
+const IMPORTANT_PIN_IDS = new Set([
+  "main-entrance",
+  "cse",
+  "ise",
+  "ece",
+  "eee",
+  "aiml",
+  "mechanical",
+  "civil",
+  "chemical",
+  "library",
+  "admin",
+  "auditorium-admin-cse",
+  "temple",
+  "bank",
+  "canteen",
+  "boys",
+  "girls",
+  "playground",
+  "indoor",
+]);
 
 function PinIcon({ tone = "default" }) {
   const cls =
@@ -269,11 +369,47 @@ export default function CampusMap() {
   const [endId, setEndId] = useState(null);
   const [pickMode, setPickMode] = useState("end"); // "start" | "end"
   const [directionsOpen, setDirectionsOpen] = useState(false);
-  const [picker, setPicker] = useState(null); // { x, y, candidates: [{id,label}] }
-  const mapRef = useRef(null);
+  const [editPins, setEditPins] = useState(false);
+  const [mapsLoadError, setMapsLoadError] = useState(null);
+  const [routeError, setRouteError] = useState(null);
+  const [geoError, setGeoError] = useState(null);
+  const [myLocation, setMyLocation] = useState(null); // {lat,lng}
+  const [travelMode, setTravelMode] = useState("DRIVING"); // DRIVING | WALKING | BICYCLING | TRANSIT
+  const mapDivRef = useRef(null);
+  const mapRef = useRef(null); // google.maps.Map
+  const zoomTimerRef = useRef(null);
+  const markersRef = useRef(new Map()); // id -> google.maps.Marker
+  const routePolylineRef = useRef(null); // google.maps.Polyline
+  const routesApiRef = useRef(null); // { Route, PinElement, AdvancedMarkerElement }
+  const [routeInfo, setRouteInfo] = useState(null); // { distanceText, durationText }
+  const [routeSteps, setRouteSteps] = useState([]);
+
+  // Support both env var names:
+  // - preferred: VITE_GOOGLE_MAPS_API_KEY
+  // - accepted:  VITE_GOOGLE_MAP_KEY (common naming)
+  const apiKeyRaw =
+    import.meta.env.VITE_GOOGLE_MAPS_API_KEY || import.meta.env.VITE_GOOGLE_MAP_KEY;
+  const apiKey = typeof apiKeyRaw === "string" ? apiKeyRaw.trim() : "";
+  // Optional but recommended (required for Advanced Markers).
+  // - preferred: VITE_GOOGLE_MAPS_MAP_ID
+  // - accepted:  VITE_GOOGLE_MAP_ID
+  const mapIdRaw =
+    import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || import.meta.env.VITE_GOOGLE_MAP_ID;
+  const mapId = typeof mapIdRaw === "string" ? mapIdRaw.trim() : "";
+  const hasMapId = !!mapId;
+  // Advanced Markers are picky about Map IDs. If the env var is missing or set to a placeholder,
+  // avoid importing the marker library to prevent "map can't load" / marker warnings.
+  const looksLikeMapId = hasMapId && mapId.length >= 10 && /^[a-zA-Z0-9]+$/.test(mapId);
+  const enableAdvancedMarkers =
+    (import.meta.env.VITE_ENABLE_ADVANCED_MARKERS === "true" || import.meta.env.VITE_ENABLE_ADVANCED_MARKERS === true) &&
+    looksLikeMapId;
+  const useRoadRouting =
+    import.meta.env.VITE_USE_ROAD_ROUTING === "true" ||
+    import.meta.env.VITE_USE_ROAD_ROUTING === true;
+
   const [pinOverrides, setPinOverrides] = useState(() => {
     try {
-      const raw = localStorage.getItem("campusPinOverrides:v1");
+      const raw = localStorage.getItem("campusPinLatLngOverrides:v1");
       return raw ? JSON.parse(raw) : {};
     } catch {
       return {};
@@ -292,7 +428,7 @@ export default function CampusMap() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("campusPinOverrides:v1", JSON.stringify(pinOverrides));
+      localStorage.setItem("campusPinLatLngOverrides:v1", JSON.stringify(pinOverrides));
     } catch {
       // ignore
     }
@@ -301,18 +437,24 @@ export default function CampusMap() {
   const pins = useMemo(() => {
     return BASE_PINS.map((p) => {
       const o = pinOverrides?.[p.id];
-      if (!o) return p;
-      const xPct = typeof o.xPct === "number" ? o.xPct : p.xPct;
-      const yPct = typeof o.yPct === "number" ? o.yPct : p.yPct;
-      return { ...p, xPct, yPct };
+      const lat = typeof o?.lat === "number" ? o.lat : legacyPctToLatLng(p.xPct, p.yPct).lat;
+      const lng = typeof o?.lng === "number" ? o.lng : legacyPctToLatLng(p.xPct, p.yPct).lng;
+      return { ...p, lat, lng };
     });
   }, [pinOverrides]);
 
+  const MAIN_ENTRANCE_ID = "main-entrance";
+  const MY_LOCATION_ID = "__my_location__";
+  const importantPins = useMemo(
+    () => pins.filter((p) => IMPORTANT_PIN_IDS.has(p.id)),
+    [pins]
+  );
+
   const visiblePins = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return pins;
-    return pins.filter((p) => p.label.toLowerCase().includes(q));
-  }, [query, pins]);
+    if (!q) return importantPins;
+    return importantPins.filter((p) => p.label.toLowerCase().includes(q));
+  }, [query, importantPins]);
 
   const selected = useMemo(
     () => pins.find((p) => p.id === selectedId) || null,
@@ -321,59 +463,6 @@ export default function CampusMap() {
 
   const startPin = useMemo(() => pins.find((p) => p.id === startId) || null, [pins, startId]);
   const endPin = useMemo(() => pins.find((p) => p.id === endId) || null, [pins, endId]);
-
-  const route = useMemo(() => {
-    if (!startPin?.nodeKey || !endPin?.nodeKey) return [];
-    return bfs(startPin.nodeKey, endPin.nodeKey, graph);
-  }, [startPin?.nodeKey, endPin?.nodeKey]);
-
-  const routeDistance = useMemo(() => routeDistanceMeters(route), [route]);
-
-  const routeSegments = useMemo(() => {
-    if (route.length < 2) return [];
-    const segs = [];
-    for (let i = 0; i < route.length - 1; i++) {
-      const a = nodes[route[i]];
-      const b = nodes[route[i + 1]];
-      if (!a || !b) continue;
-      segs.push({
-        x1: (a.x / MAP_W) * 100,
-        y1: (a.y / MAP_H) * 100,
-        x2: (b.x / MAP_W) * 100,
-        y2: (b.y / MAP_H) * 100,
-      });
-    }
-    return segs;
-  }, [route]);
-
-  const routePointsPct = useMemo(() => {
-    if (route.length < 2) return [];
-    const pts = [];
-    for (const key of route) {
-      const p = nodes[key];
-      if (!p) continue;
-      pts.push({ x: (p.x / MAP_W) * 100, y: (p.y / MAP_H) * 100 });
-    }
-    return pts;
-  }, [route]);
-
-  const routePathD = useMemo(() => pointsToSmoothSvgPath(routePointsPct), [routePointsPct]);
-
-  const routeSteps = useMemo(() => {
-    if (route.length < 2) return [];
-    const steps = [];
-    for (let i = 0; i < route.length - 1; i++) {
-      const from = route[i];
-      const to = route[i + 1];
-      steps.push({
-        from,
-        to,
-        fromLabel: NODE_LABELS[from] || from,
-        toLabel: NODE_LABELS[to] || to,
-      });
-    }
-    return steps;
-  }, [route]);
 
   const destinationDetails = useMemo(() => {
     if (!endPin) return null;
@@ -385,7 +474,27 @@ export default function CampusMap() {
     [destinationDetails]
   );
 
-  const hasRoute = route.length >= 2;
+  const hasRoute = !!(startPin && endPin && routeInfo);
+
+  const fitMapToPoints = (points) => {
+    const map = mapRef.current;
+    if (!map || !window.google?.maps?.LatLngBounds || !points?.length) return;
+    const bounds = new window.google.maps.LatLngBounds();
+    let valid = 0;
+    for (const pt of points) {
+      const lat = typeof pt?.lat === "function" ? pt.lat() : pt?.lat;
+      const lng = typeof pt?.lng === "function" ? pt.lng() : pt?.lng;
+      if (typeof lat !== "number" || typeof lng !== "number") continue;
+      bounds.extend({ lat, lng });
+      valid += 1;
+    }
+    if (!valid) return;
+    map.fitBounds(bounds, 80);
+    window.setTimeout(() => {
+      const z = map.getZoom?.();
+      if (typeof z === "number" && z > 19) map.setZoom(19);
+    }, 0);
+  };
 
   useEffect(() => {
     if (endId) setDirectionsOpen(true);
@@ -393,7 +502,6 @@ export default function CampusMap() {
 
   const applyPinChoice = (pinId) => {
     setSelectedId(pinId);
-    setPicker(null);
 
     if (pickMode === "start") {
       setStartId(pinId);
@@ -418,54 +526,533 @@ export default function CampusMap() {
     setEndId(null);
   };
 
-  const openPickerAtEvent = (e) => {
-    const el = mapRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
+  const zoomMapBy = (delta) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const current = map.getZoom?.();
+    if (typeof current !== "number") return;
+    const target = Math.max(15, Math.min(21, current + delta));
+    if (zoomTimerRef.current) {
+      window.clearTimeout(zoomTimerRef.current);
+      zoomTimerRef.current = null;
+    }
+    const step = () => {
+      const live = map.getZoom?.();
+      if (typeof live !== "number") return;
+      if (live === target) {
+        zoomTimerRef.current = null;
+        return;
+      }
+      const next = live < target ? live + 1 : live - 1;
+      map.setZoom(next);
+      zoomTimerRef.current = window.setTimeout(step, 130);
+    };
+    step();
+  };
 
-    const scored = visiblePins
-      .map((p) => {
-        const px = (p.xPct / 100) * rect.width;
-        const py = (p.yPct / 100) * rect.height;
-        const dx = px - cx;
-        const dy = py - cy;
-        return { id: p.id, label: p.label, d2: dx * dx + dy * dy };
+  const fitCurrentRoute = () => {
+    const routePath = routePolylineRef.current?.getPath?.();
+    const points = routePath ? routePath.getArray() : [];
+    if (points?.length) {
+      fitMapToPoints(points);
+      return;
+    }
+    const fallback = [];
+    if (startPin) fallback.push({ lat: startPin.lat, lng: startPin.lng });
+    if (endPin) fallback.push({ lat: endPin.lat, lng: endPin.lng });
+    if (fallback.length) fitMapToPoints(fallback);
+  };
+
+  const requestMyLocation = () => {
+    setGeoError(null);
+    if (!navigator.geolocation) {
+      setGeoError("Geolocation is not supported in this browser.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos?.coords?.latitude;
+        const lng = pos?.coords?.longitude;
+        if (typeof lat !== "number" || typeof lng !== "number") {
+          setGeoError("Could not read location coordinates.");
+          return;
+        }
+        setMyLocation({ lat, lng });
+        setStartId(MY_LOCATION_ID);
+        const map = mapRef.current;
+        if (map) map.panTo({ lat, lng });
+      },
+      (err) => {
+        setGeoError(err?.message || "Could not get your location.");
+      },
+      { enableHighAccuracy: true, timeout: 12000 }
+    );
+  };
+
+  const setPinLatLngOverride = (pinId, latLng) => {
+    setPinOverrides((prev) => ({
+      ...prev,
+      [pinId]: { lat: latLng.lat(), lng: latLng.lng() },
+    }));
+  };
+
+  // Initialize Google Map
+  useEffect(() => {
+    if (!apiKey) return;
+    if (!mapDivRef.current) return;
+    if (mapRef.current) return;
+
+    setMapsLoadError(null);
+    const prevAuthFailure = window.gm_authFailure;
+    window.gm_authFailure = () => {
+      console.error("[CampusMap] gm_authFailure fired (invalid/restricted Maps key/referrer/billing).");
+      setMapsLoadError(
+        "Google Maps authentication failed. Check that billing is enabled, the key is valid, and HTTP referrer restrictions allow this origin (e.g. http://localhost:5173/*)."
+      );
+    };
+    console.info("[CampusMap] Initializing Google Maps", {
+      apiKeyPresent: !!apiKey,
+      mapIdPresent: hasMapId,
+      mapIdLooksValid: looksLikeMapId,
+      enableAdvancedMarkers,
+      mapIdLen: hasMapId ? mapId.length : 0,
+      mapIdPrefix: hasMapId ? mapId.slice(0, 4) : null,
+    });
+    const loader = new Loader({
+      apiKey,
+      version: "weekly",
+      libraries: ["places"],
+      // If you have a Map ID, provide it to the script loader as well.
+      // (Option is deprecated, but harmless; newer loader versions still accept it.)
+      mapIds: enableAdvancedMarkers ? [mapId] : undefined,
+      // Helps when your key is restricted by referrer but local dev uses ports/paths.
+      authReferrerPolicy: "origin",
+    });
+
+    let cancelled = false;
+    loader
+      .load()
+      .then(async () => {
+        if (cancelled) return;
+        const mainEntrance = BASE_PINS.find((p) => p.id === "main-entrance");
+        const entranceLatLng = mainEntrance
+          ? legacyPctToLatLng(mainEntrance.xPct, mainEntrance.yPct)
+          : CAMPUS_CENTER;
+        const map = new window.google.maps.Map(mapDivRef.current, {
+          center: entranceLatLng,
+          zoom: 17,
+          mapId: enableAdvancedMarkers ? mapId : undefined,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: true,
+          minZoom: 15,
+          maxZoom: 21,
+          gestureHandling: "cooperative",
+        });
+        mapRef.current = map;
+        routePolylineRef.current = new window.google.maps.Polyline({
+          map,
+          clickable: false,
+          geodesic: true,
+          strokeColor: "#2563eb",
+          strokeOpacity: 0.95,
+          strokeWeight: 6,
+          icons: [
+            {
+              icon: {
+                path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                strokeColor: "#1d4ed8",
+                fillColor: "#1d4ed8",
+                fillOpacity: 1,
+                scale: 3,
+              },
+              repeat: "42px",
+            },
+          ],
+        });
+
+        // Load modern Routes + Advanced Markers libraries (recommended as of 2026).
+        try {
+          const [{ Route }, markerLib] = await Promise.all([
+            window.google.maps.importLibrary("routes"),
+            enableAdvancedMarkers
+              ? window.google.maps.importLibrary("marker")
+              : Promise.resolve(null),
+          ]);
+          routesApiRef.current = {
+            Route,
+            AdvancedMarkerElement: markerLib?.AdvancedMarkerElement || null,
+            PinElement: markerLib?.PinElement || null,
+          };
+        } catch {
+          // If these fail, we can still render the base map (but routing may not work).
+          routesApiRef.current = null;
+        }
       })
-      .sort((a, b) => a.d2 - b.d2);
+      .catch((err) => {
+        console.error("[CampusMap] loader.load() failed", err);
+        const msg =
+          typeof err?.message === "string"
+            ? err.message
+            : "Failed to load Google Maps. Check API key, enabled APIs, and HTTP referrer restrictions.";
+        setMapsLoadError(msg);
+      });
 
-    // Finger-friendly radius; also scales a bit with screen size.
-    const R = Math.max(18, Math.min(34, rect.width * 0.03));
-    const candidates = scored.filter((s) => s.d2 <= R * R).slice(0, 6);
+    return () => {
+      cancelled = true;
+      window.gm_authFailure = prevAuthFailure;
+      if (zoomTimerRef.current) {
+        window.clearTimeout(zoomTimerRef.current);
+        zoomTimerRef.current = null;
+      }
+    };
+  }, [apiKey, mapId]);
 
-    if (candidates.length <= 1) {
-      if (candidates[0]) applyPinChoice(candidates[0].id);
-      setPicker(null);
+  const markerToneForPinId = (pinId) => {
+    if (!pinId) return "default";
+    if (pinId === startId) return "start";
+    if (pinId === endId) return "end";
+    if (pinId === selectedId) return "selected";
+    return "default";
+  };
+
+  const markerIconForTone = (tone) => {
+    const colors = {
+      start: { fill: "#10b981", stroke: "#064e3b" },
+      end: { fill: "#f59e0b", stroke: "#78350f" },
+      selected: { fill: "#6366f1", stroke: "#312e81" },
+      default: { fill: "#ef4444", stroke: "#7f1d1d" },
+    };
+    const c = colors[tone] || colors.default;
+    const pin = routesApiRef.current?.PinElement;
+    if (pin) {
+      const el = new pin({
+        background: c.fill,
+        borderColor: c.stroke,
+        glyphColor: "#ffffff",
+        glyph: tone === "start" ? "S" : tone === "end" ? "D" : "",
+        scale: tone === "start" || tone === "end" ? 1.1 : 1,
+      });
+      return el.element;
+    }
+    if (tone === "start" || tone === "end") {
+      const color = tone === "start" ? "#10b981" : "#f59e0b";
+      const svg = encodeURIComponent(
+        `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='${color}' d='M12 2c-3.86 0-7 3.14-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.86-3.14-7-7-7z'/><circle cx='12' cy='9' r='3.1' fill='white'/></svg>`
+      );
+      return {
+        url: `data:image/svg+xml;charset=UTF-8,${svg}`,
+        scaledSize: new window.google.maps.Size(30, 30),
+        anchor: new window.google.maps.Point(15, 30),
+      };
+    }
+    // Fallback (legacy marker icon)
+    return {
+      path: window.google.maps.SymbolPath.CIRCLE,
+      fillColor: c.fill,
+      fillOpacity: 1,
+      strokeColor: c.stroke,
+      strokeOpacity: 1,
+      strokeWeight: 2,
+      scale: 7,
+    };
+  };
+
+  // Build/update markers when pins (or edit mode) change
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const existing = markersRef.current;
+    // In normal mode we show only Start/Destination (and the currently selected pin),
+    // so the map stays clean. In edit mode we show all pins for easy placement.
+    const idsToShow = editPins
+      ? new Set(pins.map((p) => p.id))
+      : new Set([startId, endId, selectedId].filter(Boolean));
+    const nextIds = idsToShow;
+
+    // Remove old markers
+    for (const [id, marker] of existing.entries()) {
+      if (!nextIds.has(id)) {
+        marker.setMap(null);
+        existing.delete(id);
+      }
+    }
+
+    const allPins = myLocation
+      ? [
+          ...pins,
+          {
+            id: MY_LOCATION_ID,
+            label: "My location",
+            lat: myLocation.lat,
+            lng: myLocation.lng,
+          },
+        ]
+      : pins;
+
+    // Create/update markers
+    for (const p of allPins) {
+      if (!nextIds.has(p.id)) continue;
+      const pos = { lat: p.lat, lng: p.lng };
+      const adv = routesApiRef.current?.AdvancedMarkerElement;
+
+      if (adv) {
+        let marker = existing.get(p.id);
+        if (!marker) {
+          marker = new adv({
+            map,
+            position: pos,
+            title: p.label,
+            content: markerIconForTone(markerToneForPinId(p.id)),
+            gmpDraggable: editPins && p.id !== MY_LOCATION_ID,
+          });
+          marker.addListener("click", () => applyPinChoice(p.id));
+          marker.addListener("dragend", () => {
+            const position = marker.position;
+            if (!position || p.id === MY_LOCATION_ID) return;
+            // position may be a LatLng; normalize.
+            const lat = typeof position.lat === "function" ? position.lat() : position.lat;
+            const lng = typeof position.lng === "function" ? position.lng() : position.lng;
+            if (typeof lat !== "number" || typeof lng !== "number") return;
+            setPinOverrides((prev) => ({ ...prev, [p.id]: { lat, lng } }));
+          });
+          existing.set(p.id, marker);
+        } else {
+          marker.map = map;
+          marker.position = pos;
+          marker.title = p.label;
+          marker.content = markerIconForTone(markerToneForPinId(p.id));
+          marker.gmpDraggable = editPins && p.id !== MY_LOCATION_ID;
+        }
+      } else {
+        // Fallback: legacy Marker
+        const marker =
+          existing.get(p.id) ||
+          new window.google.maps.Marker({
+            map,
+            position: pos,
+            title: p.label,
+            draggable: editPins && p.id !== MY_LOCATION_ID,
+          });
+
+        marker.setDraggable(editPins && p.id !== MY_LOCATION_ID);
+        marker.setPosition(pos);
+        marker.setIcon(markerIconForTone(markerToneForPinId(p.id)));
+
+        if (!existing.has(p.id)) {
+          marker.addListener("click", () => applyPinChoice(p.id));
+          marker.addListener("dragend", (e) => {
+            if (!e?.latLng || p.id === MY_LOCATION_ID) return;
+            setPinLatLngOverride(p.id, e.latLng);
+          });
+          existing.set(p.id, marker);
+        }
+      }
+    }
+  }, [pins, myLocation, editPins, selectedId, startId, endId]);
+
+  // Pan/zoom when selecting a pin
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const p = pins.find((x) => x.id === selectedId);
+    if (!p) return;
+    map.panTo({ lat: p.lat, lng: p.lng });
+    const z = map.getZoom?.();
+    if (typeof z === "number" && z < 18) map.setZoom(18);
+  }, [selectedId, pins]);
+
+  // Request directions when start/end change
+  useEffect(() => {
+    const map = mapRef.current;
+    const poly = routePolylineRef.current;
+    if (!map || !poly) return;
+
+    if (!endPin || (!startPin && startId !== MY_LOCATION_ID)) {
+      poly.setPath([]);
+      setRouteInfo(null);
+      setRouteError(null);
+      setRouteSteps([]);
       return;
     }
 
-    setPicker({
-      x: Math.min(Math.max(12, cx), rect.width - 12),
-      y: Math.min(Math.max(12, cy), rect.height - 12),
-      candidates,
-    });
-  };
+    const origin =
+      startId === MY_LOCATION_ID
+        ? myLocation
+        : startPin
+          ? { lat: startPin.lat, lng: startPin.lng }
+          : null;
+    const destination = endPin ? { lat: endPin.lat, lng: endPin.lng } : null;
 
-  const setPinPosFromClient = (pinId, clientX, clientY) => {
-    const el = mapRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    const xPct = (x / rect.width) * 100;
-    const yPct = (y / rect.height) * 100;
-    const clamp = (v) => Math.max(0, Math.min(100, v));
-    setPinOverrides((prev) => ({
-      ...prev,
-      [pinId]: { xPct: clamp(xPct), yPct: clamp(yPct) },
-    }));
-  };
+    if (!origin || !destination) {
+      poly.setPath([]);
+      setRouteInfo(null);
+      setRouteError(null);
+      setRouteSteps([]);
+      return;
+    }
+
+    const formatDuration = (ms) => {
+      if (typeof ms !== "number") return null;
+      const totalMins = Math.round(ms / 60000);
+      if (totalMins < 60) return `${totalMins} min`;
+      const h = Math.floor(totalMins / 60);
+      const m = totalMins % 60;
+      return m ? `${h} hr ${m} min` : `${h} hr`;
+    };
+
+    const formatDistance = (m) => {
+      if (typeof m !== "number") return null;
+      return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+    };
+
+    const buildFallbackRoute = () => {
+      const nearestPinToMyLocation =
+        startId === MY_LOCATION_ID && myLocation
+          ? pins.reduce((best, p) => {
+              const d = haversineMeters(myLocation, { lat: p.lat, lng: p.lng });
+              if (!best || d < best.d) return { pin: p, d };
+              return best;
+            }, null)?.pin
+          : null;
+
+      const startNode = startId === MY_LOCATION_ID ? nearestPinToMyLocation?.nodeKey : startPin?.nodeKey;
+      const endNode = endPin?.nodeKey;
+
+      const nodePath = shortestCampusPath(campusGraph, startNode, endNode);
+      let polyPath = [];
+      if (nodePath?.length) {
+        if (startId === MY_LOCATION_ID && myLocation) polyPath.push(myLocation);
+        for (const nodeName of nodePath) {
+          const p = pins.find((x) => x.nodeKey === nodeName);
+          if (p) polyPath.push({ lat: p.lat, lng: p.lng });
+        }
+      }
+      if (polyPath.length < 2) polyPath = [origin, destination];
+
+      poly.setPath(polyPath);
+      fitMapToPoints(polyPath);
+      const totalMeters = polyPath.slice(1).reduce((sum, pt, idx) => {
+        return sum + haversineMeters(polyPath[idx], pt);
+      }, 0);
+      const speedMps =
+        travelMode === "WALKING"
+          ? 1.35
+          : travelMode === "BICYCLING"
+            ? 4.2
+            : travelMode === "TRANSIT"
+              ? 6.5
+              : 7.5;
+      const durationMs = (totalMeters / speedMps) * 1000;
+
+      setRouteInfo({
+        distanceText: formatDistance(totalMeters),
+        durationText: formatDuration(durationMs),
+      });
+      const fallbackSteps =
+        nodePath?.length
+          ? nodePath.map((node) => NODE_LABELS[node] || node)
+          : [startPin?.label || "Source", endPin?.label || "Destination"];
+      setRouteSteps(fallbackSteps);
+      setRouteError(
+        "Using campus fallback routing because Google Routes API is not enabled for this key."
+      );
+    };
+
+    const Route = routesApiRef.current?.Route;
+    if (!useRoadRouting) {
+      setRouteError(null);
+      buildFallbackRoute();
+      return;
+    }
+    if (Route?.computeRoutes) {
+      let cancelled = false;
+      (async () => {
+        try {
+          setRouteError(null);
+          const { routes } = await Route.computeRoutes({
+            origin,
+            destination,
+            travelMode,
+            // Request only what we need
+            fields: ["path", "distanceMeters", "durationMillis"],
+            computeAlternativeRoutes: true,
+          });
+          if (cancelled || !routes?.length) throw new Error("No routes returned.");
+          const chosen = routes.reduce((acc, r) => {
+            if (typeof r?.distanceMeters !== "number") return acc;
+            if (!acc) return r;
+            if (typeof acc?.distanceMeters !== "number") return r;
+            return r.distanceMeters < acc.distanceMeters ? r : acc;
+          }, null) || routes[0];
+
+          poly.setPath(chosen.path || []);
+          fitMapToPoints(chosen.path || [origin, destination]);
+          setRouteInfo({
+            distanceText: formatDistance(chosen.distanceMeters) || null,
+            durationText: formatDuration(chosen.durationMillis) || null,
+          });
+          setRouteSteps([startPin?.label || "Source", endPin?.label || "Destination"]);
+        } catch (e) {
+          if (cancelled) return;
+          buildFallbackRoute();
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Fallback: legacy DirectionsService (may be blocked depending on your project settings)
+    const svc = new window.google.maps.DirectionsService();
+    svc.route(
+      {
+        origin,
+        destination,
+        travelMode: window.google.maps.TravelMode[travelMode] || window.google.maps.TravelMode.DRIVING,
+        provideRouteAlternatives: true,
+      },
+      (result, status) => {
+        if (status !== "OK" || !result?.routes?.length) {
+          buildFallbackRoute();
+          return;
+        }
+        setRouteError(null);
+
+        const best = result.routes.reduce((acc, r) => {
+          const leg = r?.legs?.[0];
+          const dist = leg?.distance?.value;
+          if (typeof dist !== "number") return acc;
+          if (!acc) return r;
+          const accDist = acc?.legs?.[0]?.distance?.value;
+          if (typeof accDist !== "number") return r;
+          return dist < accDist ? r : acc;
+        }, null);
+
+        const chosen = best || result.routes[0];
+        poly.setPath(chosen.overview_path || []);
+        fitMapToPoints(chosen.overview_path || [origin, destination]);
+        const leg = chosen?.legs?.[0];
+        setRouteInfo({
+          distanceText: leg?.distance?.text || null,
+          durationText: leg?.duration?.text || null,
+        });
+        setRouteSteps([startPin?.label || "Source", endPin?.label || "Destination"]);
+      }
+    );
+  }, [
+    useRoadRouting,
+    startId,
+    endId,
+    travelMode,
+    myLocation?.lat,
+    myLocation?.lng,
+    startPin?.lat,
+    startPin?.lng,
+    endPin?.lat,
+    endPin?.lng,
+  ]);
 
   const groups = useMemo(() => {
     const m = new Map();
@@ -475,6 +1062,7 @@ export default function CampusMap() {
     }
     return Array.from(m.entries());
   }, [visiblePins]);
+
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-slate-950 to-slate-900">
@@ -508,205 +1096,65 @@ export default function CampusMap() {
           <div className="rounded-2xl border border-white/10 bg-black/20 p-3 shadow-lg shadow-black/30">
             <div className="relative w-full overflow-hidden rounded-xl bg-white">
               <div
-                ref={mapRef}
                 className="relative w-full"
-                onClick={(e) => {
-                  if (e.target?.closest?.("[data-pin='1']")) return;
-                  setPicker(null);
-                  if (!editPins) openPickerAtEvent(e);
-                }}
               >
-                <img
-                  src={campusMap}
-                  alt="Layout map of SDMCET campus"
-                  className="block w-full h-auto select-none"
-                  draggable="false"
-                />
-
-                {/* Route overlay (responsive; coordinates in %) */}
-                <svg
-                  className="pointer-events-none absolute inset-0 z-5 h-full w-full"
-                  viewBox="0 0 100 100"
-                  preserveAspectRatio="none"
-                  aria-hidden="true"
-                >
-                  <defs>
-                    <filter id="routeGlow">
-                      <feGaussianBlur stdDeviation="1.1" result="blur" />
-                      <feMerge>
-                        <feMergeNode in="blur" />
-                        <feMergeNode in="SourceGraphic" />
-                      </feMerge>
-                    </filter>
-                    <filter id="routeShadow" x="-20%" y="-20%" width="140%" height="140%">
-                      <feDropShadow dx="0" dy="0.6" stdDeviation="0.9" floodColor="rgba(0,0,0,0.35)" />
-                    </filter>
-                    <marker
-                      id="routeArrow"
-                      viewBox="0 0 10 10"
-                      refX="7.5"
-                      refY="5"
-                      markerWidth="4"
-                      markerHeight="4"
-                      orient="auto-start-reverse"
-                    >
-                      <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(59, 130, 246, 0.95)" />
-                    </marker>
-                  </defs>
-
-                  {routePathD ? (
-                    <>
-                      {/* White outline */}
-                      <path
-                        d={routePathD}
-                        fill="none"
-                        stroke="rgba(255,255,255,0.92)"
-                        strokeWidth="3.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        filter="url(#routeShadow)"
-                      />
-
-                      {/* Blue route (Google-ish) */}
-                      <path
-                        d={routePathD}
-                        fill="none"
-                        stroke="rgba(37, 99, 235, 0.96)"
-                        strokeWidth="2.6"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        filter="url(#routeGlow)"
-                        markerEnd="url(#routeArrow)"
-                      />
-
-                      {/* Animated flow overlay */}
-                      <path
-                        d={routePathD}
-                        fill="none"
-                        stroke="rgba(147, 197, 253, 0.95)"
-                        strokeWidth="1.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeDasharray="2.2 6.2"
-                      >
-                        <animate
-                          attributeName="stroke-dashoffset"
-                          values="0;-24"
-                          dur="1.4s"
-                          repeatCount="indefinite"
-                        />
-                      </path>
-                    </>
-                  ) : null}
-
-                  {/* Start/End dots */}
-                  {route.length >= 2 ? (
-                    <>
-                      <circle
-                        cx={(nodes[route[0]].x / MAP_W) * 100}
-                        cy={(nodes[route[0]].y / MAP_H) * 100}
-                        r="1.8"
-                        fill="rgba(16, 185, 129, 0.95)"
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="0.8"
-                      />
-                      <circle
-                        cx={(nodes[route[route.length - 1]].x / MAP_W) * 100}
-                        cy={(nodes[route[route.length - 1]].y / MAP_H) * 100}
-                        r="1.8"
-                        fill="rgba(245, 158, 11, 0.95)"
-                        stroke="rgba(255,255,255,0.95)"
-                        strokeWidth="0.8"
-                      />
-                    </>
-                  ) : null}
-                </svg>
-
-                {visiblePins.map((pin) => {
-                  const isSelected = pin.id === selectedId;
-                  const tone =
-                    pin.id === startId
-                      ? "start"
-                      : pin.id === endId
-                        ? "end"
-                        : isSelected
-                          ? "selected"
-                          : "default";
-                  return (
-                    <button
-                      key={pin.id}
-                      data-pin="1"
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        applyPinChoice(pin.id);
-                      }}
-                      className={[
-                        "group absolute z-10 -translate-x-1/2 -translate-y-full select-none",
-                        "focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
-                      ].join(" ")}
-                      style={{ left: `${pin.xPct}%`, top: `${pin.yPct}%` }}
-                      aria-label={pin.label}
-                    >
-                      <div className="relative">
-                        <PinIcon tone={tone} />
-                        {pin.id === endId && destinationBadge ? (
-                          <span className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 -translate-y-[55%] rounded-full border border-amber-400/60 bg-amber-950/80 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-100 shadow">
-                            {destinationBadge}
-                          </span>
-                        ) : null}
-                        <span
-                          className={[
-                            "pointer-events-none absolute left-1/2 top-0 -translate-x-1/2 -translate-y-[115%] whitespace-nowrap rounded-full px-2 py-1 text-[11px] font-semibold",
-                            "border shadow-sm backdrop-blur",
-                            tone === "start"
-                              ? "border-emerald-400/50 bg-emerald-950/70 text-emerald-100"
-                              : tone === "end"
-                                ? "border-amber-400/50 bg-amber-950/70 text-amber-100"
-                                : tone === "selected"
-                                  ? "border-indigo-400/50 bg-indigo-950/70 text-indigo-100"
-                                  : "border-white/10 bg-slate-950/70 text-slate-100 opacity-0 group-hover:opacity-100 group-focus:opacity-100",
-                          ].join(" ")}
-                        >
-                          {pin.label}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-
-                {picker ? (
-                  <div
-                    className="absolute z-20 -translate-x-1/2 -translate-y-2"
-                    style={{ left: picker.x, top: picker.y }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="w-56 overflow-hidden rounded-xl border border-white/15 bg-slate-950/95 shadow-2xl shadow-black/60 backdrop-blur">
-                      <div className="flex items-center justify-between gap-2 px-3 py-2">
-                        <p className="text-xs font-extrabold text-white">Which place?</p>
-                        <button
-                          type="button"
-                          onClick={() => setPicker(null)}
-                          className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/10"
-                        >
-                          Close
-                        </button>
-                      </div>
-                      <div className="max-h-48 overflow-auto px-2 pb-2">
-                        {picker.candidates.map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => applyPinChoice(c.id)}
-                            className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left text-sm font-semibold text-white hover:bg-white/10"
-                          >
-                            {c.label}
-                          </button>
-                        ))}
+                {!apiKey ? (
+                  <div className="flex aspect-[16/10] w-full items-center justify-center bg-slate-950 px-6 text-center">
+                    <div className="max-w-md">
+                      <p className="text-sm font-extrabold text-white">Google Maps API key missing</p>
+                      <p className="mt-2 text-xs text-slate-300">
+                        Add <span className="font-semibold text-white">VITE_GOOGLE_MAPS_API_KEY</span> to a local{" "}
+                        <span className="font-semibold text-white">.env</span> file (see{" "}
+                        <span className="font-semibold text-white">.env.example</span>), then restart the dev server.
+                      </p>
+                    </div>
+                  </div>
+                ) : mapsLoadError ? (
+                  <div className="flex aspect-[16/10] w-full items-center justify-center bg-slate-950 px-6 text-center">
+                    <div className="max-w-md">
+                      <p className="text-sm font-extrabold text-white">Google Maps failed to load</p>
+                      <p className="mt-2 text-xs text-slate-300">{mapsLoadError}</p>
+                      <div className="mt-3 text-xs text-slate-300">
+                        Make sure these APIs are enabled in Google Cloud:
+                        <ul className="mt-1 list-disc space-y-1 pl-5">
+                          <li>Maps JavaScript API</li>
+                          <li>Directions API</li>
+                        </ul>
+                        If you restricted the key, add allowed referrers like{" "}
+                        <span className="font-semibold text-white">http://localhost:5173/*</span>.
                       </div>
                     </div>
                   </div>
-                ) : null}
+                ) : (
+                  <>
+                    <div ref={mapDivRef} className="aspect-[16/10] w-full" />
+                    <div className="pointer-events-none absolute right-3 top-3 flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => zoomMapBy(1)}
+                        className="pointer-events-auto h-9 w-9 rounded-lg border border-white/15 bg-slate-900/85 text-lg font-bold text-white shadow hover:bg-slate-800"
+                        aria-label="Zoom in"
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => zoomMapBy(-1)}
+                        className="pointer-events-auto h-9 w-9 rounded-lg border border-white/15 bg-slate-900/85 text-lg font-bold text-white shadow hover:bg-slate-800"
+                        aria-label="Zoom out"
+                      >
+                        -
+                      </button>
+                      <button
+                        type="button"
+                        onClick={fitCurrentRoute}
+                        className="pointer-events-auto rounded-lg border border-white/15 bg-slate-900/85 px-2 py-1 text-[11px] font-semibold text-white shadow hover:bg-slate-800"
+                      >
+                        Fit Route
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -729,8 +1177,106 @@ export default function CampusMap() {
                   </button>
                 </div>
                 <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-slate-200">
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className="grid gap-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                        Mode
+                      </span>
+                      <select
+                        value={travelMode}
+                        onChange={(e) => setTravelMode(e.target.value)}
+                        className="h-10 rounded-xl border border-white/10 bg-slate-950/60 px-3 text-sm font-semibold text-white outline-none transition focus:border-cyan-300/40"
+                      >
+                        <option value="DRIVING" className="bg-slate-950">
+                          Drive
+                        </option>
+                        <option value="WALKING" className="bg-slate-950">
+                          Walk
+                        </option>
+                        <option value="TRANSIT" className="bg-slate-950">
+                          Transit
+                        </option>
+                        <option value="BICYCLING" className="bg-slate-950">
+                          Bike
+                        </option>
+                      </select>
+                    </label>
+                    <label className="grid gap-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                        Start
+                      </span>
+                      <select
+                        value={startId || ""}
+                        onChange={(e) => {
+                          const v = e.target.value || null;
+                          setStartId(v);
+                          if (endId && v && endId === v) setEndId(null);
+                        }}
+                        className="h-10 rounded-xl border border-white/10 bg-slate-950/60 px-3 text-sm font-semibold text-white outline-none transition focus:border-cyan-300/40"
+                      >
+                        <option value="" className="bg-slate-950">
+                          —
+                        </option>
+                        <option value={MY_LOCATION_ID} className="bg-slate-950">
+                          My location
+                        </option>
+                        <option value={MAIN_ENTRANCE_ID} className="bg-slate-950">
+                          Main Entrance
+                        </option>
+                        {importantPins.map((p) => (
+                          <option key={p.id} value={p.id} className="bg-slate-950">
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="grid gap-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                        Destination
+                      </span>
+                      <select
+                        value={endId || ""}
+                        onChange={(e) => {
+                          const v = e.target.value || null;
+                          if (v && v === startId) {
+                            setEndId(null);
+                            return;
+                          }
+                          setEndId(v);
+                        }}
+                        className="h-10 rounded-xl border border-white/10 bg-slate-950/60 px-3 text-sm font-semibold text-white outline-none transition focus:border-cyan-300/40"
+                      >
+                        <option value="" className="bg-slate-950">
+                          —
+                        </option>
+                        {importantPins.map((p) => (
+                          <option key={p.id} value={p.id} className="bg-slate-950">
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {startId === MY_LOCATION_ID && !myLocation ? (
+                    <div className="rounded-lg border border-amber-400/25 bg-amber-950/30 px-2 py-2 text-[11px] text-amber-100">
+                      Click{" "}
+                      <button
+                        type="button"
+                        onClick={requestMyLocation}
+                        className="underline decoration-amber-200/60 underline-offset-2 hover:text-white"
+                      >
+                        Use my location
+                      </button>{" "}
+                      to set your start point.
+                      {geoError ? <div className="mt-1 text-amber-200/90">{geoError}</div> : null}
+                    </div>
+                  ) : null}
                   <div className="rounded-lg border border-white/10 bg-black/20 px-2 py-1.5">
-                    Start: <span className="font-semibold text-emerald-200">{startPin?.label || "—"}</span>
+                    Start:{" "}
+                    <span className="font-semibold text-emerald-200">
+                      {startId === MY_LOCATION_ID ? "My location" : startPin?.label || "—"}
+                    </span>
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/20 px-2 py-1.5">
                     Destination:{" "}
@@ -740,16 +1286,32 @@ export default function CampusMap() {
                     <div className="rounded-lg border border-white/10 bg-black/20 px-2 py-1.5">
                       Distance:{" "}
                       <span className="font-semibold text-white">
-                        {routeDistance >= 1000
-                          ? `${(routeDistance / 1000).toFixed(2)} km`
-                          : `${Math.round(routeDistance)} m`}
+                        {routeInfo?.distanceText || "—"}
                       </span>
                     </div>
                   ) : (
                     <div className="rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-slate-300">
-                      Tap pins to set start & destination.
+                      Select start & destination to get directions.
                     </div>
                   )}
+                  {hasRoute && routeInfo?.durationText ? (
+                    <div className="rounded-lg border border-white/10 bg-black/20 px-2 py-1.5">
+                      ETA: <span className="font-semibold text-white">{routeInfo.durationText}</span>
+                    </div>
+                  ) : null}
+                  {routeSteps.length > 1 ? (
+                    <div className="rounded-lg border border-cyan-400/20 bg-cyan-950/20 px-2 py-2 text-[11px] text-cyan-100">
+                      <p className="font-semibold">Path guide</p>
+                      <p className="mt-1 leading-relaxed">
+                        {routeSteps.join(" -> ")}
+                      </p>
+                    </div>
+                  ) : null}
+                  {routeError ? (
+                    <div className="rounded-lg border border-rose-400/25 bg-rose-950/30 px-2 py-2 text-[11px] text-rose-100">
+                      {routeError}
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap gap-2 pt-1">
                     <button
                       type="button"
@@ -793,26 +1355,11 @@ export default function CampusMap() {
 
                 {/* Desktop directions description + destination floor details */}
                 <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
-                  {routeSteps.length ? (
-                    <>
-                      <p className="text-xs font-semibold text-white">Step-by-step</p>
-                      <ol className="mt-2 space-y-1 text-xs text-slate-200">
-                        {routeSteps.map((s, idx) => (
-                          <li key={`${s.from}-${s.to}-${idx}`} className="flex gap-2">
-                            <span className="mt-px inline-flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white/10 text-[11px] font-bold text-white">
-                              {idx + 1}
-                            </span>
-                            <span>
-                              {s.fromLabel} →{" "}
-                              <span className="font-semibold text-white">{s.toLabel}</span>
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    </>
-                  ) : (
-                    <p className="text-xs text-slate-300">Pick start & destination pins to get directions.</p>
-                  )}
+                  <p className="text-xs font-semibold text-white">Step-by-step</p>
+                  <p className="mt-2 text-xs text-slate-300">
+                    The route line & distance come from Google Directions (walking). For full turn-by-turn steps,
+                    we can add a step list next.
+                  </p>
 
                   {destinationDetails ? (
                     <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3">
@@ -879,11 +1426,39 @@ export default function CampusMap() {
                 <p className="font-semibold text-white">Notes</p>
                 <ul className="mt-1 list-disc space-y-1 pl-4">
                   <li>
+                    <span className="font-semibold text-slate-100">Edit pins:</span>{" "}
+                    Turn on edit mode to drag markers into the exact locations; positions are saved in your browser.
+                  </li>
+                  <li>
                     ISE is routed via the admin/cse node in the current campus graph; AIML is near
                     Mechanical block.
                   </li>
                   <li>Chemical is routed via the Physics/Chemistry block in the current graph.</li>
                 </ul>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditPins((v) => !v)}
+                    className={[
+                      "rounded-lg border px-2 py-1 text-xs font-semibold transition",
+                      editPins
+                        ? "border-cyan-300/40 bg-cyan-950/40 text-cyan-100"
+                        : "border-white/10 bg-white/5 text-white hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    {editPins ? "Exit edit pins" : "Edit pins (drag markers)"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPinOverrides({});
+                      setRouteInfo(null);
+                    }}
+                    className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs font-semibold text-white hover:bg-white/10"
+                  >
+                    Reset pin positions
+                  </button>
+                </div>
               </div>
             </div>
           </aside>
@@ -927,9 +1502,7 @@ export default function CampusMap() {
                 </span>
                 {hasRoute ? (
                   <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-200">
-                    {routeDistance >= 1000
-                      ? `${(routeDistance / 1000).toFixed(2)} km`
-                      : `${Math.round(routeDistance)} m`}
+                    {routeInfo?.distanceText || "—"}
                   </span>
                 ) : null}
               </div>
@@ -952,22 +1525,9 @@ export default function CampusMap() {
                 </div>
               ) : null}
 
-              {routeSteps.length ? (
-                <ol className="mt-3 space-y-1 text-xs text-slate-200">
-                  {routeSteps.map((s, idx) => (
-                    <li key={`${s.from}-${s.to}-${idx}`} className="flex gap-2">
-                      <span className="mt-px inline-flex h-5 w-5 flex-none items-center justify-center rounded-full bg-white/10 text-[11px] font-bold text-white">
-                        {idx + 1}
-                      </span>
-                      <span>
-                        {s.fromLabel} → <span className="font-semibold text-white">{s.toLabel}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="mt-3 text-xs text-slate-300">Pick start & destination pins.</p>
-              )}
+              <p className="mt-3 text-xs text-slate-300">
+                The route line is drawn on the Google Map (walking directions).
+              </p>
             </div>
           </div>
         </div>

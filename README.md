@@ -1,16 +1,39 @@
-# React + Vite
+# Campus Map (React + Vite)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This project renders a campus map using Google Maps.
 
-Currently, two official plugins are available:
+## Local setup
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1) Install deps
 
-## React Compiler
+```bash
+npm install
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+2) Create a `.env` from `.env.example`
 
-## Expanding the ESLint configuration
+```bash
+copy .env.example .env
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Fill in:
+
+- `VITE_GOOGLE_MAPS_API_KEY`
+- (recommended) `VITE_GOOGLE_MAPS_MAP_ID`
+- `VITE_ENABLE_ADVANCED_MARKERS` (optional; default is `false`)
+
+3) Start dev server
+
+```bash
+npm run dev
+```
+
+## Google Maps requirements
+
+In Google Cloud Console for the project that owns your API key:
+
+- Enable **billing**
+- Enable **Maps JavaScript API**
+- If you want routing lines, enable **Routes API** (or **Directions API** if you switch to legacy directions)
+- If your key is restricted, add an **HTTP referrer** rule for local dev:
+  - `http://localhost:5173/*`
