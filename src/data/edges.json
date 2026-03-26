@@ -1,0 +1,218 @@
+[
+  {
+    "id": 1,
+    "from": "MainEntrance",
+    "to": "AcademicArea",
+    "distance": 100,
+    "direction": "north",
+    "instruction": "Walk north towards the academic area",
+    "time": 2
+  },
+  {
+    "id": 2,
+    "from": "MainEntrance",
+    "to": "GirlsHostels",
+    "distance": 150,
+    "direction": "east",
+    "instruction": "Walk east towards the girls hostels",
+    "time": 3
+  },
+  {
+    "id": 3,
+    "from": "MainEntrance",
+    "to": "Student2WParking",
+    "distance": 80,
+    "direction": "northeast",
+    "instruction": "Walk northeast to student parking",
+    "time": 2
+  },
+  {
+    "id": 4,
+    "from": "AcademicArea",
+    "to": "AuditoriumAdmin",
+    "distance": 50,
+    "direction": "west",
+    "instruction": "Walk west to auditorium/admin area",
+    "time": 1
+  },
+  {
+    "id": 5,
+    "from": "AcademicArea",
+    "to": "LibraryMBA",
+    "distance": 70,
+    "direction": "southwest",
+    "instruction": "Walk southwest to library",
+    "time": 2
+  },
+  {
+    "id": 6,
+    "from": "AcademicArea",
+    "to": "CivilBlock",
+    "distance": 90,
+    "direction": "south",
+    "instruction": "Walk south to civil engineering block",
+    "time": 2
+  },
+  {
+    "id": 7,
+    "from": "AuditoriumAdmin",
+    "to": "CSEBlock",
+    "distance": 30,
+    "direction": "north",
+    "instruction": "Walk north to CSE block",
+    "time": 1
+  },
+  {
+    "id": 8,
+    "from": "AuditoriumAdmin",
+    "to": "ISEBlock",
+    "distance": 40,
+    "direction": "northeast",
+    "instruction": "Walk northeast to ISE block",
+    "time": 1
+  },
+  {
+    "id": 9,
+    "from": "CSEBlock",
+    "to": "ISEBlock",
+    "distance": 25,
+    "direction": "east",
+    "instruction": "Walk east to ISE block",
+    "time": 1
+  },
+  {
+    "id": 10,
+    "from": "ISEBlock",
+    "to": "ECEBlock",
+    "distance": 35,
+    "direction": "south",
+    "instruction": "Walk south to ECE block",
+    "time": 1
+  },
+  {
+    "id": 11,
+    "from": "ISEBlock",
+    "to": "EEEBlock",
+    "distance": 30,
+    "direction": "southeast",
+    "instruction": "Walk southeast to EEE block",
+    "time": 1
+  },
+  {
+    "id": 12,
+    "from": "ECEBlock",
+    "to": "EEEBlock",
+    "distance": 15,
+    "direction": "east",
+    "instruction": "Walk east to EEE block",
+    "time": 1
+  },
+  {
+    "id": 13,
+    "from": "LibraryMBA",
+    "to": "PlacementOffice",
+    "distance": 20,
+    "direction": "west",
+    "instruction": "Walk west to placement office",
+    "time": 1
+  },
+  {
+    "id": 14,
+    "from": "LibraryMBA",
+    "to": "MBADepartment",
+    "distance": 25,
+    "direction": "southwest",
+    "instruction": "Walk southwest to MBA department",
+    "time": 1
+  },
+  {
+    "id": 15,
+    "from": "CivilBlock",
+    "to": "MechanicalBlock",
+    "distance": 60,
+    "direction": "east",
+    "instruction": "Walk east to mechanical block",
+    "time": 2
+  },
+  {
+    "id": 16,
+    "from": "MechanicalBlock",
+    "to": "AIMLBlock",
+    "distance": 20,
+    "direction": "north",
+    "instruction": "Walk north to AIML block",
+    "time": 1
+  },
+  {
+    "id": 17,
+    "from": "MechanicalBlock",
+    "to": "Temple",
+    "distance": 45,
+    "direction": "northeast",
+    "instruction": "Walk northeast to temple",
+    "time": 1
+  },
+  {
+    "id": 18,
+    "from": "MechanicalBlock",
+    "to": "Karavali",
+    "distance": 35,
+    "direction": "north",
+    "instruction": "Walk north to Karavali",
+    "time": 1
+  },
+  {
+    "id": 19,
+    "from": "Temple",
+    "to": "BoysHostels",
+    "distance": 120,
+    "direction": "north",
+    "instruction": "Walk north to boys hostels",
+    "time": 3
+  },
+  {
+    "id": 20,
+    "from": "CanteenSIC",
+    "to": "BoysHostels",
+    "distance": 100,
+    "direction": "north",
+    "instruction": "Walk north to boys hostels",
+    "time": 2
+  },
+  {
+    "id": 21,
+    "from": "BoysHostels",
+    "to": "Mess",
+    "distance": 80,
+    "direction": "west",
+    "instruction": "Walk west to mess",
+    "time": 2
+  },
+  {
+    "id": 22,
+    "from": "Mess",
+    "to": "Playground",
+    "distance": 90,
+    "direction": "southwest",
+    "instruction": "Walk southwest to playground",
+    "time": 2
+  },
+  {
+    "id": 23,
+    "from": "IndoorSports",
+    "to": "Playground",
+    "distance": 110,
+    "direction": "south",
+    "instruction": "Walk south to playground",
+    "time": 3
+  },
+  {
+    "id": 24,
+    "from": "Karavali",
+    "to": "XeroxShop",
+    "distance": 10,
+    "direction": "north",
+    "instruction": "Walk north to xerox shop",
+    "time": 1
+  }
+]

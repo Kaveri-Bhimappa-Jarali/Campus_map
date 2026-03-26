@@ -1,0 +1,170 @@
+[
+  {
+    "id": "main-entrance",
+    "name": "Main Entrance",
+    "lat": 15.431261313098682,
+    "lng": 75.01260992331335
+  },
+  {
+    "id": "cse",
+    "name": "CSE",
+    "lat": 15.430554803664092,
+    "lng": 75.01448120633201
+  },
+  {
+    "id": "ise",
+    "name": "ISE",
+    "lat": 15.430735790347253,
+    "lng": 75.01413251916007
+  },
+  {
+    "id": "ece",
+    "name": "ECE",
+    "lat": 15.430813356020302,
+    "lng": 75.01368995467261
+  },
+  {
+    "id": "eee",
+    "name": "EEE",
+    "lat": 15.43079056503788,
+    "lng": 75.01362293989324
+  },
+  {
+    "id": "aiml",
+    "name": "AIML",
+    "lat": 15.43007843537352,
+    "lng": 75.01572737173498
+  },
+  {
+    "id": "mechanical",
+    "name": "Mechanical",
+    "lat": 15.43018832041521,
+    "lng": 75.01572066620558
+  },
+  {
+    "id": "civil",
+    "name": "Civil",
+    "lat": 15.429948386365824,
+    "lng": 75.01459221584862
+  },
+  {
+    "id": "chemical",
+    "name": "Chemical",
+    "lat": 15.430280737814906,
+    "lng": 75.01479502478675
+  },
+  {
+    "id": "library",
+    "name": "Library",
+    "lat": 15.430231612765962,
+    "lng": 75.01417007008628
+  },
+  {
+    "id": "admin",
+    "name": "Administrative",
+    "lat": 15.43050181407361,
+    "lng": 75.0145830185025
+  },
+  {
+    "id": "auditorium-admin-cse",
+    "name": "Auditorium / Admin / CSE",
+    "lat": 15.430416426978626,
+    "lng": 75.01439487742509
+  },
+  {
+    "id": "temple",
+    "name": "Temple",
+    "lat": 15.430371311,
+    "lng": 75.016125407
+  },
+  {
+    "id": "bank",
+    "name": "Bank",
+    "lat": 15.430516011263363,
+    "lng": 75.01499417718992
+  },
+  {
+    "id": "canteen",
+    "name": "Canteen / SIC",
+    "lat": 15.430084228029813,
+    "lng": 75.01541528400526
+  },
+  {
+    "id": "dining",
+    "name": "Mess",
+    "lat": 15.429020469181712,
+    "lng": 75.01478764709577
+  },
+  {
+    "id": "boys",
+    "name": "Boys Hostel",
+    "lat": 15.427980841815762,
+    "lng": 75.01582834419355
+  },
+  {
+    "id": "girls",
+    "name": "Girls Hostel",
+    "lat": 15.431201340411992,
+    "lng": 75.0134779885397
+  },
+  {
+    "id": "playground",
+    "name": "Playground",
+    "lat": 15.427892932851313,
+    "lng": 75.01475009616956
+  },
+  {
+    "id": "indoor",
+    "name": "Indoor Sports",
+    "lat": 15.4315,
+    "lng": 75.0178
+  },
+  {
+    "id": "placement",
+    "name": "Placement Office",
+    "lat": 15.430249711469548,
+    "lng": 75.01422371426658
+  },
+  {
+    "id": "mba",
+    "name": "MBA Department",
+    "lat": 15.430179902175558,
+    "lng": 75.01414861241416
+  },
+  {
+    "id": "karavali",
+    "name": "Karavali",
+    "lat": 15.4305855929,
+    "lng": 75.0157201036
+  },
+  {
+    "id": "xerox",
+    "name": "Xerox Shop",
+    "lat": 15.430595935,
+    "lng": 75.0157804533
+  },
+  {
+    "id": "student2w",
+    "name": "Student 2W Parking",
+    "lat": 15.4310057223,
+    "lng": 75.0151824285
+  },
+  {
+    "id": "faculty",
+    "name": "Faculty Parking",
+    "lat": 15.4303265969,
+    "lng": 75.0149973924
+  },
+  {
+    "id": "postoffice",
+    "name": "Post Office",
+    "lat": 15.4305862827,
+    "lng": 75.0149609988
+  },
+  {
+    "id": "transportation",
+    "name": "Transportation Section",
+    "lat": 15.4305855929,
+    "lng": 75.0156208618
+  }
+]

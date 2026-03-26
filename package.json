@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@googlemaps/js-api-loader": "^1.16.10",
+    "@react-google-maps/api": "^2.20.8",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router": "^7.13.1"
