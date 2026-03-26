@@ -25,12 +25,12 @@ const options = {
   zoomControl: true,
 };
 
-// Place details (from the original code)
+// Place details (from the official campus map)
 const PLACE_DETAILS = {
   cse: {
     title: "Computer Science Engineering (CSE)",
     locationHint: "CSE block",
-    floors: ["Second Floor – Computer Science Engineering"],
+    floors: ["Ground Floor", "First Floor", "Second Floor – Computer Science Engineering"],
   },
   ise: {
     title: "Information Science Engineering (ISE)",
@@ -40,57 +40,123 @@ const PLACE_DETAILS = {
   ece: {
     title: "Electronics and Communication Engineering (ECE)",
     locationHint: "ECE block",
-    floors: ["(Floor as per campus)"],
+    floors: ["Ground Floor", "First & Second Floor – Electrical and Electronics Engineering"],
   },
   eee: {
     title: "Electrical and Electronics Engineering (EEE)",
     locationHint: "EEE block",
-    floors: ["(Floor as per campus)"],
+    floors: ["Ground Floor", "First & Second Floor – Electrical and Electronics Engineering"],
   },
   aiml: {
     title: "AI & ML (AIML)",
     locationHint: "AIML block",
-    floors: ["(Floor as per campus)"],
+    floors: ["Various Floors"],
   },
   admin: {
     title: "Administrative Block",
     locationHint: "Admin / Auditorium block",
-    floors: ["First Floor – Administrative Block"],
+    floors: ["First Floor – Administrative Block & Auditorium"],
   },
   library: {
     title: "Library",
     locationHint: "Library / MBA block",
     floors: ["First Floor – Library"],
   },
+  mba: {
+    title: "MBA Department",
+    locationHint: "Library / MBA block",
+    floors: ["Second Floor – MBA Block"],
+  },
   civil: {
     title: "Civil Engineering",
     locationHint: "Civil block",
-    floors: ["Ground Floor – Civil Engineering"],
+    floors: ["Ground Floor – Civil Engineering", "First Floor – Physics and Chemistry Department"],
   },
   chemical: {
     title: "Chemical Engineering",
     locationHint: "Chemistry Department",
-    floors: ["(Floor as per campus)"],
+    floors: ["Second Floor – Chemical Engineering"],
   },
   mechanical: {
     title: "Mechanical Department",
     locationHint: "Mechanical block",
-    floors: ["Mechanical Department (floor not specified)"],
+    floors: ["Ground Floor", "First Floor – Mechanical Department"],
   },
-  boys: { title: "Boys Hostel", locationHint: "Hostels zone", floors: [] },
-  girls: { title: "Girls Hostel", locationHint: "Hostels zone", floors: [] },
-  playground: { title: "Playground", locationHint: "Sports zone", floors: [] },
-  indoor: { title: "Indoor Sports", locationHint: "Sports complex area", floors: [] },
-  temple: { title: "Temple", locationHint: "Near the top/north side", floors: [] },
-  "main-entrance": { title: "Main Entrance", locationHint: "Entry point to campus", floors: [] },
-  placement: { title: "Placement Office", locationHint: "Near Library", floors: [] },
-  mba: { title: "MBA Department", locationHint: "Near Library", floors: [] },
-  karavali: { title: "Karavali", locationHint: "Near Mechanical block", floors: [] },
-  xerox: { title: "Xerox Shop", locationHint: "Near Karavali", floors: [] },
-  student2w: { title: "Student 2 Wheeler Parking", locationHint: "Near Girls Hostel", floors: [] },
-  faculty: { title: "Faculty Parking", locationHint: "Near Admin", floors: [] },
-  postoffice: { title: "Post Office", locationHint: "Near Bank", floors: [] },
-  transportation: { title: "Transportation Section", locationHint: "Near Mechanical", floors: [] },
+  boys: { 
+    title: "Boys Hostel", 
+    locationHint: "Hostels zone", 
+    floors: ["Boys Hostel – Central Facility"] 
+  },
+  girls: { 
+    title: "Girls Hostel", 
+    locationHint: "Hostels zone", 
+    floors: ["Girls Hostel – Central Facility"] 
+  },
+  playground: { 
+    title: "Playground", 
+    locationHint: "Sports zone", 
+    floors: ["Outdoor Area"] 
+  },
+  indoor: { 
+    title: "Indoor Sports Complex", 
+    locationHint: "Sports complex area", 
+    floors: ["Ground & First Floor"] 
+  },
+  temple: { 
+    title: "Temple", 
+    locationHint: "Campus Temple", 
+    floors: ["Ground Floor"] 
+  },
+  "main-entrance": { 
+    title: "Main Entrance", 
+    locationHint: "Entry point to campus", 
+    floors: ["Main Gate"] 
+  },
+  placement: { 
+    title: "Placement Office", 
+    locationHint: "Career Development Cell", 
+    floors: ["First Floor – Library Building"] 
+  },
+  karavali: { 
+    title: "Karavali (ATM & Fast Food)", 
+    locationHint: "Near Mechanical block", 
+    floors: ["Ground Floor – ATM, Fast Food and Bakery"] 
+  },
+  xerox: { 
+    title: "Xerox/Stationery Shop", 
+    locationHint: "Campus Facility", 
+    floors: ["Ground Floor"] 
+  },
+  student2w: { 
+    title: "Student 2-Wheeler Parking", 
+    locationHint: "Near Girls Hostel", 
+    floors: ["Open Air Facility"] 
+  },
+  faculty: { 
+    title: "Faculty Parking", 
+    locationHint: "Near Admin Block", 
+    floors: ["Open Air Facility"] 
+  },
+  postoffice: { 
+    title: "Post Office & Bank", 
+    locationHint: "Karnataka Bank and Post Office", 
+    floors: ["Ground Floor"] 
+  },
+  transportation: { 
+    title: "Transportation Section", 
+    locationHint: "Near Mechanical Block", 
+    floors: ["Administrative Office"] 
+  },
+  canteen: {
+    title: "Canteen & Dining",
+    locationHint: "Central Dining and Recreation Facility",
+    floors: ["Ground Floor – Canteen & Central Dining"]
+  },
+  alumni: {
+    title: "Alumni Block",
+    locationHint: "Campus Building",
+    floors: ["Alumni Association Office"]
+  },
 };
 
 // Base pins (adapted from original)
@@ -132,7 +198,7 @@ const places = BASE_PINS.map(pin => ({
   lat: pin.lat,
   lng: pin.lng,
   description: PLACE_DETAILS[pin.id]?.locationHint,
-  floor: PLACE_DETAILS[pin.id]?.floors?.[0] || null,
+  floors: PLACE_DETAILS[pin.id]?.floors || [],
   nodeKey: pin.nodeKey,
 }));
 
@@ -418,17 +484,18 @@ export default function CampusMap() {
                           position={{ lat: p.lat, lng: p.lng }}
                           onCloseClick={() => setSelectedPlace(null)}
                         >
-                          <div className="bg-gray-800 text-white p-3 rounded shadow-lg" style={{ maxWidth: '200px' }}>
-                            <h3 className="font-bold text-blue-400 mb-2">{p.name}</h3>
+                          <div style={{ maxWidth: '220px', background: '#1e293b', color: '#f1f5f9', padding: '10px 12px', borderRadius: '8px' }}>
+                            <div style={{ fontWeight: 700, color: '#38bdf8', marginBottom: '6px', fontSize: '13px' }}>{p.name}</div>
                             {p.description && (
-                              <p className="text-sm text-gray-300 mb-2">
-                                📍 {p.description}
-                              </p>
+                              <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '6px' }}>📍 {p.description}</div>
                             )}
-                            {p.floor && (
-                              <p className="text-sm text-gray-400">
-                                🏢 {p.floor}
-                              </p>
+                            {p.floors.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: '11px', fontWeight: 600, color: '#7dd3fc', marginBottom: '3px' }}>🏢 Floor Details</div>
+                                <ul style={{ margin: 0, paddingLeft: '14px', fontSize: '11px', color: '#cbd5e1' }}>
+                                  {p.floors.map((f, i) => <li key={i}>{f}</li>)}
+                                </ul>
+                              </div>
                             )}
                           </div>
                         </InfoWindow>
@@ -542,45 +609,40 @@ export default function CampusMap() {
 
           <aside className="rounded-2xl border border-white/10 bg-black/20 p-4 shadow-lg shadow-black/30">
             <div className="sticky top-4 space-y-4">
+              {/* DIRECTIONS SECTION */}
               <section className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <h2 className="text-sm font-bold text-white">Directions</h2>
-                <select className="mt-2 w-full h-10 rounded-xl border border-white/20 bg-slate-900 px-3 text-sm text-white">
-                  <option>Drive</option>
-                  <option>Walk</option>
-                  <option>Bike</option>
-                </select>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-bold text-white">Directions</h2>
+                  <span className="text-xs font-semibold text-green-400">Open</span>
+                </div>
 
-                <select
-                  value={start?.nodeKey || ""}
-                  onChange={(e) => {
-                    const nodeKey = e.target.value;
-                    if (!nodeKey) return setStart(null);
-                    setStart({ nodeKey, lat: nodes[nodeKey].lat, lng: nodes[nodeKey].lng, name: formatNodeLabel(nodeKey) });
-                  }}
-                  className="mt-2 w-full h-10 rounded-xl border border-white/20 bg-slate-900 px-3 text-sm text-white"
-                >
-                  <option value="">Start location</option>
-                  {allNodes.map((n) => (
-                    <option key={n.nodeKey} value={n.nodeKey}>{n.label}</option>
-                  ))}
-                </select>
+                <div className="space-y-2 mb-3">
+                  <div className="text-xs text-slate-300 bg-white/5 rounded-lg p-2">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 rounded-full bg-green-500"></span>
+                      Start: <span className="font-semibold text-emerald-300">{start?.name || "—"}</span>
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-300 bg-white/5 rounded-lg p-2">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-block h-2 w-2 rounded-full bg-red-500"></span>
+                      Destination: <span className="font-semibold text-amber-300">{end?.name || "—"}</span>
+                    </div>
+                  </div>
+                </div>
 
-                <select
-                  value={end?.nodeKey || ""}
-                  onChange={(e) => {
-                    const nodeKey = e.target.value;
-                    if (!nodeKey) return setEnd(null);
-                    setEnd({ nodeKey, lat: nodes[nodeKey].lat, lng: nodes[nodeKey].lng, name: formatNodeLabel(nodeKey) });
-                  }}
-                  className="mt-2 w-full h-10 rounded-xl border border-white/20 bg-slate-900 px-3 text-sm text-white"
-                >
-                  <option value="">Destination</option>
-                  {allNodes.map((n) => (
-                    <option key={n.nodeKey} value={n.nodeKey}>{n.label}</option>
-                  ))}
-                </select>
-
-                <div className="mt-3 flex gap-2">
+                <div className="flex gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStart(null);
+                      setEnd(null);
+                      setSelectedPlace(null);
+                    }}
+                    className="flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                  >
+                    Pick start
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -598,54 +660,143 @@ export default function CampusMap() {
                       setEnd(null);
                       setSelectedPlace(null);
                     }}
-                    className="flex-1 rounded-lg border border-white/20 bg-emerald-600/20 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600/30"
+                    className="flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
                   >
                     Reset
                   </button>
                 </div>
 
-                <div className="mt-3 text-xs text-slate-300">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="inline-block h-3 w-3 rounded-full bg-green-500"></span>
-                    Start: <span className="font-semibold text-emerald-300">{start?.name || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="inline-block h-3 w-3 rounded-full bg-red-500"></span>
-                    Destination: <span className="font-semibold text-amber-300">{end?.name || "—"}</span>
-                  </div>
-                  {showPath && (
-                    <div className="mt-2 rounded-lg border border-cyan-400/20 bg-cyan-950/20 px-3 py-2">
-                      <p className="text-cyan-300 font-semibold">
-                        📏 {pathDistance >= 1000
-                          ? `${(pathDistance / 1000).toFixed(2)} km`
-                          : `${Math.round(pathDistance)} m`}
-                      </p>
-                      <p className="text-slate-400 mt-0.5">
-                        🚶 ~{Math.ceil(pathDistance / 80)} min walk · {pathCoords.length - 1} stops
-                      </p>
-                    </div>
-                  )}
+                <p className="text-xxs text-slate-400 mb-2">
+                  Pick start &amp; destination pins to get directions.
+                </p>
+
+                <div className="space-y-2">
+                  <select
+                    value={start?.nodeKey || ""}
+                    onChange={(e) => {
+                      const nodeKey = e.target.value;
+                      if (!nodeKey) return setStart(null);
+                      setStart({ nodeKey, lat: nodes[nodeKey].lat, lng: nodes[nodeKey].lng, name: formatNodeLabel(nodeKey) });
+                    }}
+                    className="w-full h-9 rounded-lg border border-white/20 bg-slate-900 px-2 text-xs text-white"
+                  >
+                    <option value="">Start location</option>
+                    {allNodes.map((n) => (
+                      <option key={n.nodeKey} value={n.nodeKey}>{n.label}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={end?.nodeKey || ""}
+                    onChange={(e) => {
+                      const nodeKey = e.target.value;
+                      if (!nodeKey) return setEnd(null);
+                      setEnd({ nodeKey, lat: nodes[nodeKey].lat, lng: nodes[nodeKey].lng, name: formatNodeLabel(nodeKey) });
+                    }}
+                    className="w-full h-9 rounded-lg border border-white/20 bg-slate-900 px-2 text-xs text-white"
+                  >
+                    <option value="">Destination</option>
+                    {allNodes.map((n) => (
+                      <option key={n.nodeKey} value={n.nodeKey}>{n.label}</option>
+                    ))}
+                  </select>
                 </div>
 
-                <p className="mt-3 text-xxs text-slate-400">
-                  Pick start and destination. The map shows optimized route automatically.
-                </p>
+                {showPath && (
+                  <div className="mt-2 rounded-lg border border-cyan-400/20 bg-cyan-950/20 px-3 py-2">
+                    <p className="text-cyan-300 font-semibold text-xs">
+                      📏 {pathDistance >= 1000
+                        ? `${(pathDistance / 1000).toFixed(2)} km`
+                        : `${Math.round(pathDistance)} m`}
+                    </p>
+                    <p className="text-slate-400 mt-0.5 text-xs">
+                      {pathCoords.length - 1} stops
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMapType("satellite")}
+                    className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold ${mapType === "satellite" ? "border-cyan-300 bg-cyan-500/20 text-cyan-300" : "border-white/20 bg-white/5 text-white hover:bg-white/10"}`}
+                  >
+                    Satellite
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapType("roadmap")}
+                    className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold ${mapType === "roadmap" ? "border-cyan-300 bg-cyan-500/20 text-cyan-300" : "border-white/20 bg-white/5 text-white hover:bg-white/10"}`}
+                  >
+                    Map
+                  </button>
+                </div>
               </section>
 
+              {/* LOCATION PIN POINTS LEGEND */}
               <section className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <h2 className="text-sm font-bold text-white">Quick places</h2>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {places.slice(0, 4).map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handleMarkerClick(p)}
-                      className="rounded-xl border border-white/20 bg-white/5 px-2 py-2 text-xs font-semibold text-white hover:bg-white/10"
-                    >
-                      {p.name}
-                    </button>
-                  ))}
+                <h2 className="text-sm font-bold text-white mb-2">Location pin points</h2>
+                <p className="text-xxs text-slate-400 mb-2">Click a name to highlight its pin on the map.</p>
+
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400 mb-1">Campus</p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {places.slice(0, 4).map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleMarkerClick(p)}
+                          className="text-xxs text-white bg-white/5 rounded px-2 py-1 hover:bg-white/10 text-left"
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400 mb-1">Departments</p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {places.slice(4, 8).map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleMarkerClick(p)}
+                          className="text-xxs text-white bg-white/5 rounded px-2 py-1 hover:bg-white/10 text-left"
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400 mb-1">Facilities</p>
+                    <div className="grid grid-cols-2 gap-1">
+                      {places.slice(8, 12).map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleMarkerClick(p)}
+                          className="text-xxs text-white bg-white/5 rounded px-2 py-1 hover:bg-white/10 text-left"
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+              </section>
+
+              {/* NOTES SECTION */}
+              <section className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <h2 className="text-sm font-bold text-white mb-2">Notes</h2>
+                <ul className="text-xxs text-slate-300 space-y-1 list-disc pl-4">
+                  <li>Optimize your route selection by picking start and destination pins</li>
+                  <li>A* algorithm finds the shortest path between locations</li>
+                  <li>Use Swap to reverse start/destination, Reset to clear</li>
+                </ul>
               </section>
             </div>
           </aside>
