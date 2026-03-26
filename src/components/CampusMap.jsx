@@ -1,22 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Loader } from "@googlemaps/js-api-loader";
-import nodes from "./nodes";
+import nodes, { routeDistanceMeters } from "./nodes";
 import campusGraph from "./graph";
 
-// SDMCET (Dharwad) campus center (approx; used as map initial center).
-// Source: public references (Wikipedia/GeoHack). You can adjust anytime.
-const CAMPUS_CENTER = { lat: 15.430333, lng: 75.01475 };
+const CAMPUS_CENTER = { lat: 15.4303, lng: 75.0148 };
 
-// Rough campus span (degrees). Used to convert legacy image-relative pin positions into a
-// reasonable "starting" placement on the Google Map. You can then drag pins to exact spots.
-const DEFAULT_SPAN = { dLat: 0.004, dLng: 0.004 };
-
-function legacyPctToLatLng(xPct, yPct, center = CAMPUS_CENTER, span = DEFAULT_SPAN) {
-  // xPct: 0..100 left->right, yPct: 0..100 top->bottom
-  const lng = center.lng + ((xPct - 50) / 100) * span.dLng;
-  const lat = center.lat + ((50 - yPct) / 100) * span.dLat;
-  return { lat, lng };
-}
+// Env vars are static at build time — compute once at module level to avoid
+// missing-dependency ESLint warnings on the map-init useEffect.
+const _apiKeyRaw = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || import.meta.env.VITE_GOOGLE_MAP_KEY;
+const apiKey = typeof _apiKeyRaw === "string" ? _apiKeyRaw.trim() : "";
+const _mapIdRaw = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || import.meta.env.VITE_GOOGLE_MAP_ID;
+const mapId = typeof _mapIdRaw === "string" ? _mapIdRaw.trim() : "";
+const hasMapId = !!mapId;
+const looksLikeMapId = hasMapId && mapId.length >= 10 && /^[a-zA-Z0-9]+$/.test(mapId);
+const enableAdvancedMarkers =
+  (import.meta.env.VITE_ENABLE_ADVANCED_MARKERS === "true" ||
+    import.meta.env.VITE_ENABLE_ADVANCED_MARKERS === true) &&
+  looksLikeMapId;
+const useRoadRouting =
+  import.meta.env.VITE_USE_ROAD_ROUTING === "true" ||
+  import.meta.env.VITE_USE_ROAD_ROUTING === true;
 
 function floorBadgeFromDetails(details) {
   if (!details?.floors?.length) return null;
@@ -30,23 +33,34 @@ function floorBadgeFromDetails(details) {
 const NODE_LABELS = {
   MainEntrance: "Main Entrance",
   AcademicArea: "Academic Area",
-  AuditoriumAdminCSE: "Admin / Auditorium / CSE",
+  AuditoriumAdmin: "Auditorium / Admin",
   AdministrativeBlock: "Administrative Block",
   CSEBlock: "CSE Block",
   ISEBlock: "ISE Block",
-  LibraryMBA: "Library",
+  ECEBlock: "ECE Block",
+  EEEBlock: "EEE Block",
+  LibraryMBA: "Library / MBA",
   CivilBlock: "Civil Block",
-  PhysicsChemistryBlock: "Physics / Chemistry Block",
+  PhysicsDepartment: "Physics Department",
+  ChemistryDepartment: "Chemistry Department",
   MechanicalBlock: "Mechanical Block",
+  AIMLBlock: "AI & ML Block",
   Temple: "Temple",
-  BankPostOffice: "Bank / Post Office",
+  Bank: "Bank",
   CanteenSIC: "Canteen / SIC",
-  DiningRecreation: "Dining / Recreation",
+  Mess: "Mess",
   BoysHostels: "Boys Hostel",
   GirlsHostels: "Girls Hostel",
   Playground: "Playground",
   IndoorSports: "Indoor Sports",
-  STP: "STP",
+  PlacementOffice: "Placement Office",
+  MBADepartment: "MBA Department",
+  Karavali: "Karavali",
+  XeroxShop: "Xerox Shop",
+  Student2WParking: "Student 2W Parking",
+  FacultyParking: "Faculty Parking",
+  PostOffice: "Post Office",
+  TransportationSection: "Transportation Section",
 };
 
 // Floor / department legend (from the image you provided)
@@ -63,18 +77,18 @@ const PLACE_DETAILS = {
   },
   ece: {
     title: "Electronics and Communication Engineering (ECE)",
-    locationHint: "ECE / EEE / ISE block",
-    floors: ["First Floor – Electronics and Communication Engineering"],
+    locationHint: "ECE block",
+    floors: ["(Floor as per campus)"],
   },
   eee: {
     title: "Electrical and Electronics Engineering (EEE)",
-    locationHint: "ECE / EEE / ISE block",
-    floors: ["Ground Floor – Electrical and Electronics Engineering"],
+    locationHint: "EEE block",
+    floors: ["(Floor as per campus)"],
   },
   aiml: {
     title: "AI & ML (AIML)",
-    locationHint: "Near Mechanical block",
-    floors: ["(Floor as per campus: update if needed)"],
+    locationHint: "AIML block",
+    floors: ["(Floor as per campus)"],
   },
   admin: {
     title: "Administrative Block",
@@ -83,23 +97,23 @@ const PLACE_DETAILS = {
   },
   library: {
     title: "Library",
-    locationHint: "CCCF / Library / MBA block",
+    locationHint: "Library / MBA block",
     floors: ["First Floor – Library"],
   },
   civil: {
     title: "Civil Engineering",
-    locationHint: "Civil / Physics-Chemistry / Chemical block",
+    locationHint: "Civil block",
     floors: ["Ground Floor – Civil Engineering"],
   },
   chemical: {
     title: "Chemical Engineering",
-    locationHint: "Shown under blocks that list Chemical Engineering",
-    floors: ["Second Floor – Chemical Engineering"],
+    locationHint: "Chemistry Department",
+    floors: ["(Floor as per campus)"],
   },
   mechanical: {
     title: "Mechanical Department",
     locationHint: "Mechanical block",
-    floors: ["Mechanical Department (floor not specified in legend)"],
+    floors: ["Mechanical Department (floor not specified)"],
   },
   boys: { title: "Boys Hostel", locationHint: "Hostels zone", floors: [] },
   girls: { title: "Girls Hostel", locationHint: "Hostels zone", floors: [] },
@@ -107,24 +121,14 @@ const PLACE_DETAILS = {
   indoor: { title: "Indoor Sports", locationHint: "Sports complex area", floors: [] },
   temple: { title: "Temple", locationHint: "Near the top/north side", floors: [] },
   "main-entrance": { title: "Main Entrance", locationHint: "Entry point to campus", floors: [] },
-};
-
-// Pins are based on your legacy image coordinates (600x456). We convert them to lat/lng for
-// initial placement on Google Maps, then allow precise drag-adjustments stored in localStorage.
-const LEGACY_MAP_W = 600;
-const LEGACY_MAP_H = 456;
-const toLegacyPct = (x, y) => ({ xPct: (x / LEGACY_MAP_W) * 100, yPct: (y / LEGACY_MAP_H) * 100 });
-
-// Department pin anchors tuned against the SDMCET layout reference image.
-const DEPARTMENT_PIN_POS = {
-  cse: { x: 204, y: 191 }, // CSE in Admin/Auditorium/CSE cluster
-  ise: { x: 170, y: 210 }, // ISE in EEE/ECE/ISE block
-  ece: { x: 161, y: 218 }, // ECE in same block (first floor)
-  eee: { x: 178, y: 201 }, // EEE in same block (ground floor)
-  aiml: { x: 291, y: 141 }, // AIML shown near Mechanical side in current campus mapping
-  mechanical: { x: 281, y: 139 },
-  civil: { x: 241, y: 211 },
-  chemical: { x: 244, y: 181 },
+  placement: { title: "Placement Office", locationHint: "Near Library", floors: [] },
+  mba: { title: "MBA Department", locationHint: "Near Library", floors: [] },
+  karavali: { title: "Karavali", locationHint: "Near Mechanical block", floors: [] },
+  xerox: { title: "Xerox Shop", locationHint: "Near Karavali", floors: [] },
+  student2w: { title: "Student 2 Wheeler Parking", locationHint: "Near Girls Hostel", floors: [] },
+  faculty: { title: "Faculty Parking", locationHint: "Near Admin", floors: [] },
+  postoffice: { title: "Post Office", locationHint: "Near Bank", floors: [] },
+  transportation: { title: "Transportation Section", locationHint: "Near Mechanical", floors: [] },
 };
 
 function haversineMeters(a, b) {
@@ -161,161 +165,36 @@ function shortestCampusPath(graph, startNode, endNode) {
   return null;
 }
 
+// Each pin uses real GPS coordinates from nodes.js directly.
 const BASE_PINS = [
-  {
-    id: "cse",
-    label: "CSE",
-    group: "Departments",
-    nodeKey: "CSEBlock",
-    ...toLegacyPct(DEPARTMENT_PIN_POS.cse.x, DEPARTMENT_PIN_POS.cse.y),
-  },
-  {
-    id: "ise",
-    label: "ISE",
-    group: "Departments",
-    nodeKey: "ISEBlock",
-    ...toLegacyPct(DEPARTMENT_PIN_POS.ise.x, DEPARTMENT_PIN_POS.ise.y),
-  },
-  {
-    id: "ece",
-    label: "ECE",
-    group: "Departments",
-    nodeKey: "ISEBlock",
-    ...toLegacyPct(DEPARTMENT_PIN_POS.ece.x, DEPARTMENT_PIN_POS.ece.y),
-  },
-  {
-    id: "eee",
-    label: "EEE",
-    group: "Departments",
-    nodeKey: "ISEBlock",
-    ...toLegacyPct(DEPARTMENT_PIN_POS.eee.x, DEPARTMENT_PIN_POS.eee.y),
-  },
-  {
-    id: "aiml",
-    label: "AIML",
-    group: "Departments",
-    nodeKey: "MechanicalBlock",
-    ...toLegacyPct(DEPARTMENT_PIN_POS.aiml.x, DEPARTMENT_PIN_POS.aiml.y),
-  },
-  {
-    id: "mechanical",
-    label: "Mechanical",
-    group: "Departments",
-    nodeKey: "MechanicalBlock",
-    ...toLegacyPct(DEPARTMENT_PIN_POS.mechanical.x, DEPARTMENT_PIN_POS.mechanical.y),
-  },
-  {
-    id: "civil",
-    label: "Civil",
-    group: "Departments",
-    nodeKey: "CivilBlock",
-    ...toLegacyPct(DEPARTMENT_PIN_POS.civil.x, DEPARTMENT_PIN_POS.civil.y),
-  },
-  {
-    id: "chemical",
-    label: "Chemical",
-    group: "Departments",
-    nodeKey: "PhysicsChemistryBlock",
-    ...toLegacyPct(DEPARTMENT_PIN_POS.chemical.x, DEPARTMENT_PIN_POS.chemical.y),
-  },
-  {
-    id: "library",
-    label: "Library",
-    group: "Campus",
-    nodeKey: "LibraryMBA",
-    ...toLegacyPct(nodes.LibraryMBA.x, nodes.LibraryMBA.y),
-  },
-  {
-    id: "academic",
-    label: "Academic Area",
-    group: "Campus",
-    nodeKey: "AcademicArea",
-    ...toLegacyPct(nodes.AcademicArea.x, nodes.AcademicArea.y),
-  },
-  {
-    id: "auditorium-admin-cse",
-    label: "Auditorium / Admin / CSE",
-    group: "Campus",
-    nodeKey: "AuditoriumAdminCSE",
-    ...toLegacyPct(nodes.AuditoriumAdminCSE.x, nodes.AuditoriumAdminCSE.y),
-  },
-  {
-    id: "temple",
-    label: "Temple",
-    group: "Campus",
-    nodeKey: "Temple",
-    ...toLegacyPct(nodes.Temple.x, nodes.Temple.y),
-  },
-  {
-    id: "admin",
-    label: "Administrative",
-    group: "Campus",
-    nodeKey: "AdministrativeBlock",
-    ...toLegacyPct(nodes.AdministrativeBlock.x, nodes.AdministrativeBlock.y),
-  },
-  {
-    id: "bank",
-    label: "Bank / Post Office",
-    group: "Campus",
-    nodeKey: "BankPostOffice",
-    ...toLegacyPct(nodes.BankPostOffice.x, nodes.BankPostOffice.y),
-  },
-  {
-    id: "canteen",
-    label: "Canteen / SIC",
-    group: "Campus",
-    nodeKey: "CanteenSIC",
-    ...toLegacyPct(nodes.CanteenSIC.x, nodes.CanteenSIC.y),
-  },
-  {
-    id: "dining",
-    label: "Dining / Recreation",
-    group: "Campus",
-    nodeKey: "DiningRecreation",
-    ...toLegacyPct(nodes.DiningRecreation.x, nodes.DiningRecreation.y),
-  },
-  {
-    id: "boys",
-    label: "Boys Hostel",
-    group: "Hostels",
-    nodeKey: "BoysHostels",
-    ...toLegacyPct(nodes.BoysHostels.x, nodes.BoysHostels.y),
-  },
-  {
-    id: "girls",
-    label: "Girls Hostel",
-    group: "Hostels",
-    nodeKey: "GirlsHostels",
-    ...toLegacyPct(nodes.GirlsHostels.x, nodes.GirlsHostels.y),
-  },
-  {
-    id: "playground",
-    label: "Playground",
-    group: "Sports",
-    nodeKey: "Playground",
-    ...toLegacyPct(nodes.Playground.x, nodes.Playground.y),
-  },
-  {
-    id: "indoor",
-    label: "Indoor Sports",
-    group: "Sports",
-    nodeKey: "IndoorSports",
-    ...toLegacyPct(nodes.IndoorSports.x, nodes.IndoorSports.y),
-  },
-  {
-    id: "stp",
-    label: "STP",
-    group: "Campus",
-    nodeKey: "STP",
-    ...toLegacyPct(nodes.STP.x, nodes.STP.y),
-  },
-  {
-    id: "main-entrance",
-    label: "Main Entrance",
-    group: "Campus",
-    nodeKey: "MainEntrance",
-    ...toLegacyPct(nodes.MainEntrance.x, nodes.MainEntrance.y),
-  },
+  { id: "main-entrance",        label: "Main Entrance",           group: "Campus",      nodeKey: "MainEntrance",         lat: nodes.MainEntrance.lat,          lng: nodes.MainEntrance.lng },
+  { id: "cse",                  label: "CSE",                     group: "Departments", nodeKey: "CSEBlock",              lat: nodes.CSEBlock.lat,               lng: nodes.CSEBlock.lng },
+  { id: "ise",                  label: "ISE",                     group: "Departments", nodeKey: "ISEBlock",              lat: nodes.ISEBlock.lat,               lng: nodes.ISEBlock.lng },
+  { id: "ece",                  label: "ECE",                     group: "Departments", nodeKey: "ECEBlock",              lat: nodes.ECEBlock.lat,               lng: nodes.ECEBlock.lng },
+  { id: "eee",                  label: "EEE",                     group: "Departments", nodeKey: "EEEBlock",              lat: nodes.EEEBlock.lat,               lng: nodes.EEEBlock.lng },
+  { id: "aiml",                 label: "AIML",                    group: "Departments", nodeKey: "AIMLBlock",             lat: nodes.AIMLBlock.lat,              lng: nodes.AIMLBlock.lng },
+  { id: "mechanical",           label: "Mechanical",              group: "Departments", nodeKey: "MechanicalBlock",       lat: nodes.MechanicalBlock.lat,        lng: nodes.MechanicalBlock.lng },
+  { id: "civil",                label: "Civil",                   group: "Departments", nodeKey: "CivilBlock",            lat: nodes.CivilBlock.lat,             lng: nodes.CivilBlock.lng },
+  { id: "chemical",             label: "Chemical",                group: "Departments", nodeKey: "ChemistryDepartment",   lat: nodes.ChemistryDepartment.lat,    lng: nodes.ChemistryDepartment.lng },
+  { id: "library",              label: "Library",                 group: "Campus",      nodeKey: "LibraryMBA",            lat: nodes.LibraryMBA.lat,             lng: nodes.LibraryMBA.lng },
+  { id: "admin",                label: "Administrative",          group: "Campus",      nodeKey: "AdministrativeBlock",   lat: nodes.AdministrativeBlock.lat,    lng: nodes.AdministrativeBlock.lng },
+  { id: "auditorium-admin-cse", label: "Auditorium / Admin / CSE",group: "Campus",      nodeKey: "AuditoriumAdmin",       lat: nodes.AuditoriumAdmin.lat,        lng: nodes.AuditoriumAdmin.lng },
+  { id: "temple",               label: "Temple",                  group: "Campus",      nodeKey: "Temple",                lat: nodes.Temple.lat,                 lng: nodes.Temple.lng },
+  { id: "bank",                 label: "Bank",                    group: "Campus",      nodeKey: "Bank",                  lat: nodes.Bank.lat,                   lng: nodes.Bank.lng },
+  { id: "canteen",              label: "Canteen / SIC",           group: "Campus",      nodeKey: "CanteenSIC",            lat: nodes.CanteenSIC.lat,             lng: nodes.CanteenSIC.lng },
+  { id: "dining",               label: "Mess",                    group: "Campus",      nodeKey: "Mess",                  lat: nodes.Mess.lat,                   lng: nodes.Mess.lng },
+  { id: "boys",                 label: "Boys Hostel",             group: "Hostels",     nodeKey: "BoysHostels",           lat: nodes.BoysHostels.lat,            lng: nodes.BoysHostels.lng },
+  { id: "girls",                label: "Girls Hostel",            group: "Hostels",     nodeKey: "GirlsHostels",          lat: nodes.GirlsHostels.lat,           lng: nodes.GirlsHostels.lng },
+  { id: "playground",           label: "Playground",              group: "Sports",      nodeKey: "Playground",            lat: nodes.Playground.lat,             lng: nodes.Playground.lng },
+  { id: "indoor",               label: "Indoor Sports",           group: "Sports",      nodeKey: "IndoorSports",          lat: nodes.IndoorSports.lat,           lng: nodes.IndoorSports.lng },
+  { id: "placement",            label: "Placement Office",        group: "Campus",      nodeKey: "PlacementOffice",       lat: nodes.PlacementOffice.lat,        lng: nodes.PlacementOffice.lng },
+  { id: "mba",                  label: "MBA Department",          group: "Campus",      nodeKey: "MBADepartment",         lat: nodes.MBADepartment.lat,          lng: nodes.MBADepartment.lng },
+  { id: "karavali",             label: "Karavali",                group: "Campus",      nodeKey: "Karavali",              lat: nodes.Karavali.lat,               lng: nodes.Karavali.lng },
+  { id: "xerox",                label: "Xerox Shop",              group: "Campus",      nodeKey: "XeroxShop",             lat: nodes.XeroxShop.lat,              lng: nodes.XeroxShop.lng },
+  { id: "student2w",            label: "Student 2W Parking",      group: "Parking",     nodeKey: "Student2WParking",      lat: nodes.Student2WParking.lat,       lng: nodes.Student2WParking.lng },
+  { id: "faculty",              label: "Faculty Parking",         group: "Parking",     nodeKey: "FacultyParking",        lat: nodes.FacultyParking.lat,         lng: nodes.FacultyParking.lng },
+  { id: "postoffice",           label: "Post Office",             group: "Campus",      nodeKey: "PostOffice",            lat: nodes.PostOffice.lat,             lng: nodes.PostOffice.lng },
+  { id: "transportation",       label: "Transportation Section", group: "Campus",      nodeKey: "TransportationSection", lat: nodes.TransportationSection.lat,  lng: nodes.TransportationSection.lng },
 ];
 
 // Keep UI focused on key navigation points only.
@@ -339,6 +218,14 @@ const IMPORTANT_PIN_IDS = new Set([
   "girls",
   "playground",
   "indoor",
+  "placement",
+  "mba",
+  "karavali",
+  "xerox",
+  "student2w",
+  "faculty",
+  "postoffice",
+  "transportation",
 ]);
 
 function PinIcon({ tone = "default" }) {
@@ -384,29 +271,6 @@ export default function CampusMap() {
   const [routeInfo, setRouteInfo] = useState(null); // { distanceText, durationText }
   const [routeSteps, setRouteSteps] = useState([]);
 
-  // Support both env var names:
-  // - preferred: VITE_GOOGLE_MAPS_API_KEY
-  // - accepted:  VITE_GOOGLE_MAP_KEY (common naming)
-  const apiKeyRaw =
-    import.meta.env.VITE_GOOGLE_MAPS_API_KEY || import.meta.env.VITE_GOOGLE_MAP_KEY;
-  const apiKey = typeof apiKeyRaw === "string" ? apiKeyRaw.trim() : "";
-  // Optional but recommended (required for Advanced Markers).
-  // - preferred: VITE_GOOGLE_MAPS_MAP_ID
-  // - accepted:  VITE_GOOGLE_MAP_ID
-  const mapIdRaw =
-    import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || import.meta.env.VITE_GOOGLE_MAP_ID;
-  const mapId = typeof mapIdRaw === "string" ? mapIdRaw.trim() : "";
-  const hasMapId = !!mapId;
-  // Advanced Markers are picky about Map IDs. If the env var is missing or set to a placeholder,
-  // avoid importing the marker library to prevent "map can't load" / marker warnings.
-  const looksLikeMapId = hasMapId && mapId.length >= 10 && /^[a-zA-Z0-9]+$/.test(mapId);
-  const enableAdvancedMarkers =
-    (import.meta.env.VITE_ENABLE_ADVANCED_MARKERS === "true" || import.meta.env.VITE_ENABLE_ADVANCED_MARKERS === true) &&
-    looksLikeMapId;
-  const useRoadRouting =
-    import.meta.env.VITE_USE_ROAD_ROUTING === "true" ||
-    import.meta.env.VITE_USE_ROAD_ROUTING === true;
-
   const [pinOverrides, setPinOverrides] = useState(() => {
     try {
       const raw = localStorage.getItem("campusPinLatLngOverrides:v1");
@@ -437,8 +301,8 @@ export default function CampusMap() {
   const pins = useMemo(() => {
     return BASE_PINS.map((p) => {
       const o = pinOverrides?.[p.id];
-      const lat = typeof o?.lat === "number" ? o.lat : legacyPctToLatLng(p.xPct, p.yPct).lat;
-      const lng = typeof o?.lng === "number" ? o.lng : legacyPctToLatLng(p.xPct, p.yPct).lng;
+      const lat = typeof o?.lat === "number" ? o.lat : p.lat;
+      const lng = typeof o?.lng === "number" ? o.lng : p.lng;
       return { ...p, lat, lng };
     });
   }, [pinOverrides]);
@@ -636,7 +500,7 @@ export default function CampusMap() {
         if (cancelled) return;
         const mainEntrance = BASE_PINS.find((p) => p.id === "main-entrance");
         const entranceLatLng = mainEntrance
-          ? legacyPctToLatLng(mainEntrance.xPct, mainEntrance.yPct)
+          ? { lat: mainEntrance.lat, lng: mainEntrance.lng }
           : CAMPUS_CENTER;
         const map = new window.google.maps.Map(mapDivRef.current, {
           center: entranceLatLng,
@@ -774,8 +638,6 @@ export default function CampusMap() {
     if (!map) return;
 
     const existing = markersRef.current;
-    // In normal mode we show only Start/Destination (and the currently selected pin),
-    // so the map stays clean. In edit mode we show all pins for easy placement.
     const idsToShow = editPins
       ? new Set(pins.map((p) => p.id))
       : new Set([startId, endId, selectedId].filter(Boolean));
@@ -821,7 +683,6 @@ export default function CampusMap() {
           marker.addListener("dragend", () => {
             const position = marker.position;
             if (!position || p.id === MY_LOCATION_ID) return;
-            // position may be a LatLng; normalize.
             const lat = typeof position.lat === "function" ? position.lat() : position.lat;
             const lng = typeof position.lng === "function" ? position.lng() : position.lng;
             if (typeof lat !== "number" || typeof lng !== "number") return;
@@ -1052,16 +913,13 @@ export default function CampusMap() {
       }
     );
   }, [
-    useRoadRouting,
     startId,
     endId,
     travelMode,
-    myLocation?.lat,
-    myLocation?.lng,
-    startPin?.lat,
-    startPin?.lng,
-    endPin?.lat,
-    endPin?.lng,
+    myLocation,
+    startPin,
+    endPin,
+    pins,
   ]);
 
   const groups = useMemo(() => {
@@ -1440,10 +1298,9 @@ export default function CampusMap() {
                     Turn on edit mode to drag markers into the exact locations; positions are saved in your browser.
                   </li>
                   <li>
-                    ISE is routed via the admin/cse node in the current campus graph; AIML is near
-                    Mechanical block.
+                    All departments are directly accessible via the campus graph.
                   </li>
-                  <li>Chemical is routed via the Physics/Chemistry block in the current graph.</li>
+                  <li>New places like Placement Office, MBA Department, Karavali, Xerox Shop, and parking areas have been added.</li>
                 </ul>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
