@@ -642,7 +642,17 @@ export default function CampusMap() {
           center: entranceLatLng,
           zoom: 17,
           mapId: enableAdvancedMarkers ? mapId : undefined,
-          mapTypeControl: false,
+          mapTypeId: window.google.maps.MapTypeId.SATELLITE,
+          mapTypeControl: true,
+          mapTypeControlOptions: {
+            style: window.google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
+            position: window.google.maps.ControlPosition.TOP_RIGHT,
+            mapTypeIds: [
+              window.google.maps.MapTypeId.ROADMAP,
+              window.google.maps.MapTypeId.SATELLITE,
+              window.google.maps.MapTypeId.HYBRID,
+            ],
+          },
           streetViewControl: false,
           fullscreenControl: true,
           minZoom: 15,
