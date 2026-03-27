@@ -7,7 +7,7 @@ import {
 } from "@react-google-maps/api";
 
 import { campusCenter, campusBounds } from "../config/mapBounds";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import nodes from "./nodes";
 import campusGraph from "./graph";
 
@@ -27,136 +27,65 @@ const options = {
 
 // Place details (from the official campus map)
 const PLACE_DETAILS = {
-  cse: {
-    title: "Computer Science Engineering (CSE)",
-    locationHint: "CSE block",
-    floors: ["Ground Floor", "First Floor", "Second Floor – Computer Science Engineering"],
-  },
-  ise: {
-    title: "Information Science Engineering (ISE)",
-    locationHint: "ISE block",
-    floors: ["Second Floor – Information Science Engineering"],
-  },
-  ece: {
-    title: "Electronics and Communication Engineering (ECE)",
-    locationHint: "ECE block",
-    floors: ["Ground Floor", "First & Second Floor – Electrical and Electronics Engineering"],
-  },
-  eee: {
-    title: "Electrical and Electronics Engineering (EEE)",
-    locationHint: "EEE block",
-    floors: ["Ground Floor", "First & Second Floor – Electrical and Electronics Engineering"],
-  },
-  aiml: {
-    title: "AI & ML (AIML)",
-    locationHint: "AIML block",
-    floors: ["Various Floors"],
-  },
-  admin: {
-    title: "Administrative Block",
-    locationHint: "Admin / Auditorium block",
-    floors: ["First Floor – Administrative Block & Auditorium"],
-  },
-  library: {
-    title: "Library",
-    locationHint: "Library / MBA block",
-    floors: ["First Floor – Library"],
-  },
-  mba: {
-    title: "MBA Department",
-    locationHint: "Library / MBA block",
-    floors: ["Second Floor – MBA Block"],
-  },
-  civil: {
-    title: "Civil Engineering",
-    locationHint: "Civil block",
-    floors: ["Ground Floor – Civil Engineering", "First Floor – Physics and Chemistry Department"],
-  },
-  chemical: {
-    title: "Chemical Engineering",
-    locationHint: "Chemistry Department",
-    floors: ["Second Floor – Chemical Engineering"],
-  },
-  mechanical: {
-    title: "Mechanical Department",
-    locationHint: "Mechanical block",
-    floors: ["Ground Floor", "First Floor – Mechanical Department"],
-  },
-  boys: { 
-    title: "Boys Hostel", 
-    locationHint: "Hostels zone", 
-    floors: ["Boys Hostel – Central Facility"] 
-  },
-  girls: { 
-    title: "Girls Hostel", 
-    locationHint: "Hostels zone", 
-    floors: ["Girls Hostel – Central Facility"] 
-  },
-  playground: { 
-    title: "Playground", 
-    locationHint: "Sports zone", 
-    floors: ["Outdoor Area"] 
-  },
-  indoor: { 
-    title: "Indoor Sports Complex", 
-    locationHint: "Sports complex area", 
-    floors: ["Ground & First Floor"] 
-  },
-  temple: { 
-    title: "Temple", 
-    locationHint: "Campus Temple", 
-    floors: ["Ground Floor"] 
-  },
-  "main-entrance": { 
-    title: "Main Entrance", 
-    locationHint: "Entry point to campus", 
-    floors: ["Main Gate"] 
-  },
-  placement: { 
-    title: "Placement Office", 
-    locationHint: "Career Development Cell", 
-    floors: ["First Floor – Library Building"] 
-  },
-  karavali: { 
-    title: "Karavali (ATM & Fast Food)", 
-    locationHint: "Near Mechanical block", 
-    floors: ["Ground Floor – ATM, Fast Food and Bakery"] 
-  },
-  xerox: { 
-    title: "Xerox/Stationery Shop", 
-    locationHint: "Campus Facility", 
-    floors: ["Ground Floor"] 
-  },
-  student2w: { 
-    title: "Student 2-Wheeler Parking", 
-    locationHint: "Near Girls Hostel", 
-    floors: ["Open Air Facility"] 
-  },
-  faculty: { 
-    title: "Faculty Parking", 
-    locationHint: "Near Admin Block", 
-    floors: ["Open Air Facility"] 
-  },
-  postoffice: { 
-    title: "Post Office & Bank", 
-    locationHint: "Karnataka Bank and Post Office", 
-    floors: ["Ground Floor"] 
-  },
-  transportation: { 
-    title: "Transportation Section", 
-    locationHint: "Near Mechanical Block", 
-    floors: ["Administrative Office"] 
-  },
-  canteen: {
-    title: "Canteen & Dining",
-    locationHint: "Central Dining and Recreation Facility",
-    floors: ["Ground Floor – Canteen & Central Dining"]
-  },
-  alumni: {
-    title: "Alumni Block",
-    locationHint: "Campus Building",
-    floors: ["Alumni Association Office"]
-  },
+  cse: { title: "Computer Science Engineering (CSE)", locationHint: "CSE block", floors: ["GF", "1F", "2F"] },
+  ise: { title: "Information Science Engineering (ISE)", locationHint: "ISE block", floors: ["3F"] },
+  ece: { title: "Electronics and Communication Engineering (ECE)", locationHint: "ECE block", floors: ["GF", "1F", "2F"] },
+  eee: { title: "Electrical and Electronics Engineering (EEE)", locationHint: "EEE block", floors: ["GF", "1F", "2F"] },
+  aiml: { title: "AI & ML (AIML)", locationHint: "AIML block", floors: ["Various"] },
+  admin: { title: "Administrative Block", locationHint: "Admin / Auditorium block", floors: ["1F"] },
+  library: { title: "Library", locationHint: "Library / MBA block", floors: ["1F"] },
+  mba: { title: "MBA Department", locationHint: "Library / MBA block", floors: ["2F"] },
+  civil: { title: "Civil Engineering", locationHint: "Civil block", floors: ["GF", "1F"] },
+  chemical: { title: "Chemical Engineering", locationHint: "Chemistry Department", floors: ["2F"] },
+  mechanical: { title: "Mechanical Department", locationHint: "Mechanical block", floors: ["GF", "1F"] },
+  boys: { title: "Boys Hostel", locationHint: "Hostels zone", floors: [] },
+  girls: { title: "Girls Hostel", locationHint: "Hostels zone", floors: [] },
+  playground: { title: "Playground", locationHint: "Sports zone", floors: [] },
+  indoor: { title: "Indoor Sports Complex", locationHint: "Sports complex area", floors: ["GF", "1F"] },
+  temple: { title: "Temple", locationHint: "Campus Temple", floors: [] },
+  "main-entrance": { title: "Main Entrance", locationHint: "Entry point to campus", floors: [] },
+  placement: { title: "Placement Office", locationHint: "Career Development Cell", floors: ["1F"] },
+  karavali: { title: "Karavali (ATM & Fast Food)", locationHint: "Near Mechanical block", floors: ["GF"] },
+  xerox: { title: "Xerox/Stationery Shop", locationHint: "Campus Facility", floors: [] },
+  student2w: { title: "Student 2-Wheeler Parking", locationHint: "Near Girls Hostel", floors: [] },
+  faculty: { title: "Faculty Parking", locationHint: "Near Admin Block", floors: [] },
+  postoffice: { title: "Post Office & Bank", locationHint: "Karnataka Bank and Post Office", floors: ["GF"] },
+  transportation: { title: "Transportation Section", locationHint: "Near Mechanical Block", floors: [] },
+  canteen: { title: "Canteen & Dining", locationHint: "Central Dining and Recreation Facility", floors: ["GF"] },
+  alumni: { title: "Alumni Block", locationHint: "Campus Building", floors: [] },
+};
+
+// Mapping from node keys to place detail IDs
+const NODE_KEY_TO_PLACE = {
+  MainEntrance: "main-entrance",
+  CSEBlock: "cse",
+  ISEBlock: "ise",
+  ECEBlock: "ece",
+  EEEBlock: "eee",
+  AIMLBlock: "aiml",
+  MechanicalBlock: "mechanical",
+  CivilBlock: "civil",
+  ChemistryDepartment: "chemical",
+  PhysicsDepartment: "chemical",
+  LibraryMBA: "library",
+  AdministrativeBlock: "admin",
+  AuditoriumAdmin: "admin",
+  Temple: "temple",
+  Bank: "bank",
+  PostOffice: "postoffice",
+  CanteenSIC: "canteen",
+  Mess: "dining",
+  BoysHostels: "boys",
+  GirlsHostels: "girls",
+  Playground: "playground",
+  IndoorSports: "indoor",
+  PlacementOffice: "placement",
+  MBADepartment: "mba",
+  Karavali: "karavali",
+  XeroxShop: "xerox",
+  Student2WParking: "student2w",
+  FacultyParking: "faculty",
+  TransportationSection: "transportation",
 };
 
 // Base pins (adapted from original)
@@ -294,14 +223,20 @@ function shortestCampusPath(graph, startNode, endNode) {
   const visited = new Set();
   const queue = new MinHeap();
 
+  const getFloorPenalty = (n1, n2) => {
+    if (!nodes[n1] || !nodes[n2]) return 0;
+    const diff = Math.abs((nodes[n1].floorLevel || 0) - (nodes[n2].floorLevel || 0));
+    return diff * 15; // 15 meters physical effort per floor
+  };
+
   const heuristic = (node) => {
-    return haversine(nodes[node].lat, nodes[node].lng, nodes[endNode].lat, nodes[endNode].lng);
+    return haversine(nodes[node].lat, nodes[node].lng, nodes[endNode].lat, nodes[endNode].lng) + getFloorPenalty(node, endNode);
   };
 
   queue.push({ node: startNode, dist: heuristic(startNode) });
 
   while (!queue.isEmpty()) {
-    const { node: current, dist: currentDist } = queue.pop();
+    const { node: current } = queue.pop();
 
     if (visited.has(current)) continue;
     visited.add(current);
@@ -311,7 +246,7 @@ function shortestCampusPath(graph, startNode, endNode) {
     const neighbors = graph[current] || [];
     for (const neighbor of neighbors) {
       if (visited.has(neighbor)) continue;
-      const stepCost = haversine(nodes[current].lat, nodes[current].lng, nodes[neighbor].lat, nodes[neighbor].lng);
+      const stepCost = haversine(nodes[current].lat, nodes[current].lng, nodes[neighbor].lat, nodes[neighbor].lng) + getFloorPenalty(current, neighbor);
       const tentativeG = (gScore[current] ?? Infinity) + stepCost;
       if (tentativeG < (gScore[neighbor] ?? Infinity)) {
         gScore[neighbor] = tentativeG;
@@ -339,6 +274,7 @@ export default function CampusMap() {
   const [showAllLocations, setShowAllLocations] = useState(false);
   const [pickMode, setPickMode] = useState("start"); // "start" | "end"
   const [editPins, setEditPins] = useState(false);
+  const [currentPathStep, setCurrentPathStep] = useState(0);
 
   const mapOptions = useMemo(() => ({
     ...options,
@@ -384,23 +320,88 @@ export default function CampusMap() {
 
   const currentGraph = useMemo(() => loadEdgesAndBuildGraph(), []);
 
-  const pathCoords = useMemo(() => {
-    if (!start || !end) return [];
+  const pathInfo = useMemo(() => {
+    if (!start || !end) return { coords: [], nodePath: [], navigation: [] };
 
     const startNode = start.nodeKey;
     const endNode = end.nodeKey;
     const nodePath = shortestCampusPath(currentGraph, startNode, endNode);
 
-    if (!nodePath) return [];
+    if (!nodePath) return { coords: [], nodePath: [], navigation: [] };
 
-    return nodePath.map((nodeKey) => ({
+    const coords = nodePath.map((nodeKey) => ({
       lat: nodes[nodeKey].lat,
       lng: nodes[nodeKey].lng,
     }));
+
+    // Create navigation info with floor details
+    const startLevel = nodes[startNode]?.floorLevel ?? 0;
+    const endLevel = nodes[endNode]?.floorLevel ?? 0;
+    
+    // Overall floor instruction logic
+    let overallFloorInstruction = null;
+    if (startLevel === endLevel) {
+       overallFloorInstruction = `Both on same floor level (${nodes[endNode]?.floorLabel || startLevel + 'F'}) - Walk across path.`;
+    } else if (startLevel < endLevel) {
+       overallFloorInstruction = `Overall: You will need to head UP to ${nodes[endNode]?.floorLabel || endLevel + 'F'}.`;
+    } else {
+       overallFloorInstruction = `Overall: You will need to head DOWN to ${nodes[endNode]?.floorLabel || endLevel + 'F'}.`;
+    }
+
+    const navigation = nodePath.map((nodeKey, idx) => {
+      const placeId = NODE_KEY_TO_PLACE[nodeKey];
+      const placeDetails = placeId ? PLACE_DETAILS[placeId] : null;
+      const nextNodeKey = nodePath[idx + 1];
+      const nextPlaceId = nextNodeKey ? NODE_KEY_TO_PLACE[nextNodeKey] : null;
+      const nextPlaceDetails = nextPlaceId ? PLACE_DETAILS[nextPlaceId] : null;
+
+      let stairInstruction = null;
+      if (idx === 0 && startNode !== endNode) {
+          // Show the overall instruction at the very first step
+          stairInstruction = overallFloorInstruction;
+      } else if (nextNodeKey) {
+        const currentLevel = nodes[nodeKey]?.floorLevel ?? 0;
+        const nextLevel = nodes[nextNodeKey]?.floorLevel ?? 0;
+        const currentBuilding = nodes[nodeKey]?.building;
+        const nextBuilding = nodes[nextNodeKey]?.building;
+        const nextLabel = nodes[nextNodeKey]?.floorLabel || `${nextLevel}F`;
+        
+        // Only show intermediate stair instructions if staying within the SAME building
+        // to avoid "moving down and then up" across buildings.
+        if (currentBuilding && currentBuilding === nextBuilding && currentLevel !== nextLevel) {
+          if (currentLevel < nextLevel) {
+            stairInstruction = `Take stairs UP to ${nextLabel}`;
+          } else if (currentLevel > nextLevel) {
+            stairInstruction = `Take stairs DOWN to ${nextLabel}`;
+          }
+        }
+      }
+
+      return {
+        nodeKey,
+        placeId,
+        title: placeDetails?.title || formatNodeLabel(nodeKey),
+        description: placeDetails?.locationHint || "",
+        floors: placeDetails?.floors || [],
+        nextNodeKey,
+        nextTitle: nextPlaceDetails?.title || (nextNodeKey ? formatNodeLabel(nextNodeKey) : null),
+        stairInstruction
+      };
+    });
+
+    return { coords, nodePath, navigation };
   }, [start, end, currentGraph]);
+
+  const pathCoords = pathInfo.coords;
+  const pathNavigation = pathInfo.navigation;
 
   const showPath = pathCoords.length > 1;
   const pathKey = `${start?.nodeKey || "none"}-${end?.nodeKey || "none"}-${pathCoords.length}`;
+
+  // Reset step when path changes
+  useEffect(() => {
+    setCurrentPathStep(0);
+  }, [pathKey]);
 
   const pathDistance = useMemo(() => {
     if (!showPath) return 0;
@@ -411,11 +412,24 @@ export default function CampusMap() {
   }, [pathCoords, showPath]);
 
   const handleMarkerClick = (place) => {
-    if (!start || (start && end)) {
+    if (pickMode === "done") {
       setStart(place);
       setEnd(null);
-    } else {
+      setPickMode("end");
+    } else if (pickMode === "start") {
+      setStart(place);
+      if (end) {
+        setPickMode("done");
+      } else {
+        setPickMode("end");
+      }
+    } else if (pickMode === "end") {
       setEnd(place);
+      if (start) {
+        setPickMode("done");
+      } else {
+        setPickMode("start");
+      }
     }
   };
 
@@ -484,17 +498,18 @@ export default function CampusMap() {
                           position={{ lat: p.lat, lng: p.lng }}
                           onCloseClick={() => setSelectedPlace(null)}
                         >
-                          <div style={{ maxWidth: '220px', background: '#1e293b', color: '#f1f5f9', padding: '10px 12px', borderRadius: '8px' }}>
-                            <div style={{ fontWeight: 700, color: '#38bdf8', marginBottom: '6px', fontSize: '13px' }}>{p.name}</div>
+                          <div style={{ padding: '0px 4px' }}>
+                            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px', lineHeight: '1.2' }}>{p.name}</div>
                             {p.description && (
-                              <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '6px' }}>📍 {p.description}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>{p.description}</div>
                             )}
                             {p.floors.length > 0 && (
-                              <div>
-                                <div style={{ fontSize: '11px', fontWeight: 600, color: '#7dd3fc', marginBottom: '3px' }}>🏢 Floor Details</div>
-                                <ul style={{ margin: 0, paddingLeft: '14px', fontSize: '11px', color: '#cbd5e1' }}>
-                                  {p.floors.map((f, i) => <li key={i}>{f}</li>)}
-                                </ul>
+                              <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', marginTop: '8px' }}>
+                                {p.floors.map((f, i) => (
+                                  <span key={i} style={{ backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', color: '#334155', fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '10px' }}>
+                                    {f}
+                                  </span>
+                                ))}
                               </div>
                             )}
                           </div>
@@ -503,64 +518,82 @@ export default function CampusMap() {
                     </div>
                   ))}
 
-                  {/* NODE INFOWINDOW */}
-                  {selectedPlace && nodes[selectedPlace] && (
-                    <InfoWindow
-                      position={{ lat: nodes[selectedPlace].lat, lng: nodes[selectedPlace].lng }}
-                      onCloseClick={() => setSelectedPlace(null)}
-                    >
-                      <div className="bg-gray-800 text-white p-2 rounded shadow-lg" style={{ minWidth: '130px' }}>
-                        <h3 className="font-bold text-blue-300">{formatNodeLabel(selectedPlace)}</h3>
-                        <p className="text-xs text-gray-300">Internal node</p>
+                  {/* PATH NODE INFOWINDOWS */}
+                  {showPath && [
+                    pathNavigation[0],
+                    pathNavigation[pathNavigation.length - 1]
+                  ].filter(Boolean).map((step) => step.floors.length > 0 && (
+                    <InfoWindow key={`nav-${step.nodeKey}`} position={{ lat: nodes[step.nodeKey].lat, lng: nodes[step.nodeKey].lng }}>
+                      <div style={{ fontSize: '10px', color: '#0f172a', lineHeight: '1.4', padding: '2px' }}>
+                        <b style={{ display: 'block', marginBottom: '4px' }}>{step.title}</b>
+                        {step.floors.length > 0 && (
+                          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                            {step.floors.map((f, i) => (
+                              <span key={i} style={{ backgroundColor: '#e0f2fe', border: '1px solid #7dd3fc', color: '#0284c7', fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '10px' }}>
+                                {f}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </InfoWindow>
-                  )}
+                  ))}
 
-                  {/* PATH — shadow/glow layer + main line + arrows */}
-                  {showPath && pathCoords.length > 1 && (
-                    <>
-                      {/* Glow/shadow underneath */}
-                      <Polyline
-                        key={`shadow-${pathKey}`}
-                        path={pathCoords}
-                        options={{
-                          strokeColor: "#0ea5e9",
-                          strokeWeight: 14,
-                          strokeOpacity: 0.25,
-                          geodesic: true,
-                          clickable: false,
-                          zIndex: 1,
-                        }}
-                      />
-                      {/* Main route line */}
-                      <Polyline
-                        key={`main-${pathKey}`}
-                        path={pathCoords}
-                        options={{
-                          strokeColor: "#38bdf8",
-                          strokeWeight: 6,
-                          strokeOpacity: 1,
-                          geodesic: true,
-                          clickable: false,
-                          zIndex: 2,
-                          icons: [
-                            {
-                              icon: {
-                                path: window.google?.maps?.SymbolPath?.FORWARD_CLOSED_ARROW,
-                                scale: 3.5,
-                                strokeColor: "#ffffff",
-                                strokeWeight: 1,
-                                fillColor: "#0ea5e9",
-                                fillOpacity: 1,
-                              },
-                              offset: "20px",
-                              repeat: "50px",
+                  {/* PREMIUM NEON GLOW PATH EFFECT */}
+                  <>
+                    {/* 1. Outer deep aura */}
+                    <Polyline
+                      path={showPath && pathCoords.length > 1 ? pathCoords : []}
+                      options={{
+                        strokeColor: "#0284c7",
+                        strokeWeight: 24,
+                        strokeOpacity: 0.12,
+                        geodesic: true,
+                        clickable: false,
+                        zIndex: 1,
+                      }}
+                    />
+                    
+                    {/* 2. Inner intense glow */}
+                    <Polyline
+                      path={showPath && pathCoords.length > 1 ? pathCoords : []}
+                      options={{
+                        strokeColor: "#06b6d4",
+                        strokeWeight: 10,
+                        strokeOpacity: 0.5,
+                        geodesic: true,
+                        clickable: false,
+                        zIndex: 2,
+                      }}
+                    />
+
+                    {/* 3. Bright solid core line with sleek directional arrows */}
+                    <Polyline
+                      path={showPath && pathCoords.length > 1 ? pathCoords : []}
+                      options={{
+                        strokeColor: "#ffffff",
+                        strokeWeight: 4,
+                        strokeOpacity: 0.9,
+                        geodesic: true,
+                        clickable: false,
+                        zIndex: 3,
+                        icons: [
+                          {
+                            icon: {
+                              path: window.google?.maps?.SymbolPath?.FORWARD_CLOSED_ARROW,
+                              scale: 2.5,
+                              strokeColor: "#0284c7",
+                              strokeWeight: 1.5,
+                              fillColor: "#67e8f9",
+                              fillOpacity: 1,
                             },
-                          ],
-                        }}
-                      />
-                    </>
-                  )}
+                            offset: "20%",
+                            repeat: "60px",
+                          },
+                        ],
+                      }}
+                    />
+                  </>
 
                   {/* START marker — green with S label */}
                   {start && (
@@ -634,22 +667,26 @@ export default function CampusMap() {
                 <div className="flex gap-2 mb-3">
                   <button
                     type="button"
-                    onClick={() => {
-                      setStart(null);
-                      setEnd(null);
-                      setSelectedPlace(null);
-                    }}
-                    className="flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                    onClick={() => setPickMode("start")}
+                    className={`flex-1 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors ${pickMode === 'start' ? 'border-green-400 bg-green-500/20 text-green-300' : 'border-white/20 bg-white/10 text-white hover:bg-white/20'}`}
                   >
-                    Pick start
+                    Start
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickMode("end")}
+                    className={`flex-1 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors ${pickMode === 'end' ? 'border-red-400 bg-red-500/20 text-red-300' : 'border-white/20 bg-white/10 text-white hover:bg-white/20'}`}
+                  >
+                    Dest
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      if (end) setStart(end);
-                      setEnd(null);
+                      const temp = start;
+                      setStart(end);
+                      setEnd(temp);
                     }}
-                    className="flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                    className="flex-1 rounded-lg border border-white/20 bg-white/10 px-2 py-2 text-xs font-semibold text-white hover:bg-white/20"
                   >
                     Swap
                   </button>
@@ -659,8 +696,9 @@ export default function CampusMap() {
                       setStart(null);
                       setEnd(null);
                       setSelectedPlace(null);
+                      setPickMode("start");
                     }}
-                    className="flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                    className="flex-1 rounded-lg border border-white/20 bg-white/10 px-2 py-2 text-xs font-semibold text-white hover:bg-white/20"
                   >
                     Reset
                   </button>
@@ -715,6 +753,7 @@ export default function CampusMap() {
                   </div>
                 )}
 
+
                 <div className="mt-3 flex gap-2">
                   <button
                     type="button"
@@ -733,71 +772,62 @@ export default function CampusMap() {
                 </div>
               </section>
 
-              {/* LOCATION PIN POINTS LEGEND */}
-              <section className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <h2 className="text-sm font-bold text-white mb-2">Location pin points</h2>
-                <p className="text-xxs text-slate-400 mb-2">Click a name to highlight its pin on the map.</p>
-
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-400 mb-1">Campus</p>
-                    <div className="grid grid-cols-2 gap-1">
-                      {places.slice(0, 4).map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => handleMarkerClick(p)}
-                          className="text-xxs text-white bg-white/5 rounded px-2 py-1 hover:bg-white/10 text-left"
-                        >
-                          {p.name}
-                        </button>
-                      ))}
-                    </div>
+              {/* GUIDE OR ROUTE SECTION */}
+              {!showPath ? (
+                <section className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <h2 className="text-sm font-bold text-white mb-2">How to Use</h2>
+                  <ol className="text-xs text-slate-300 space-y-2 list-decimal pl-4 marker:text-cyan-400">
+                    <li><strong>Pick Start:</strong> Tap a pin on the map or use the dropdown.</li>
+                    <li><strong>Pick Destination:</strong> Tap another pin to draw your route.</li>
+                    <li><strong>Navigate:</strong> Follow the highlighted blue path!</li>
+                    <li><strong>Restart:</strong> Tap any pin to instantly clear and start a new route.</li>
+                  </ol>
+                </section>
+              ) : (
+                <section className="rounded-xl border border-white/10 bg-white/5 p-3 max-h-[300px] overflow-y-auto">
+                  <h2 className="text-sm font-bold text-white mb-4">Shortest Route Steps</h2>
+                  <div className="space-y-4">
+                    {pathNavigation.map((step, idx) => (
+                      <div key={idx} className="relative pl-6">
+                        {/* Connecting line */}
+                        {idx !== pathNavigation.length - 1 && (
+                          <div className="absolute left-[7px] top-4 bottom-[-20px] w-[2px] bg-cyan-500/20"></div>
+                        )}
+                        {/* Node bullet */}
+                        <div className={`absolute left-0 top-[2px] h-4 w-4 rounded-full border-[3px] border-slate-900 ${idx === 0 ? 'bg-green-500' : idx === pathNavigation.length - 1 ? 'bg-red-500' : 'bg-cyan-400 z-10 shadow-[0_0_8px_rgba(34,211,238,0.4)]'}`}></div>
+                        
+                        <div className="flex flex-col gap-1">
+                          <p className="text-xs font-semibold text-white leading-tight">{step.title}</p>
+                          {step.floors && step.floors.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {step.floors.map((f, i) => (
+                                <span key={i} className="rounded-full border border-cyan-400/50 bg-cyan-900/40 px-1.5 py-[2px] text-[9px] font-bold text-cyan-300">
+                                  🏢 {f}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {step.stairInstruction && (
+                            <p className="text-[10px] font-bold text-yellow-300 mt-1 flex items-center gap-1 bg-yellow-400/10 px-2 py-1 rounded w-max border border-yellow-500/20">
+                              {step.stairInstruction.includes('UP') ? "⬆️" : "⬇️"} {step.stairInstruction}
+                            </p>
+                          )}
+                          {step.nextTitle && !step.stairInstruction && (
+                            <p className="text-[10px] text-slate-400 mt-1 leading-tight flex items-center gap-1">
+                              <span>↓</span> Head towards <span className="text-cyan-200">{step.nextTitle}</span>
+                            </p>
+                          )}
+                          {step.nextTitle && step.stairInstruction && (
+                            <p className="text-[10px] text-slate-400 mt-1 leading-tight flex items-center gap-1">
+                              <span>↳</span> Then head to <span className="text-cyan-200">{step.nextTitle}</span>
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-
-                  <div>
-                    <p className="text-xs font-semibold text-slate-400 mb-1">Departments</p>
-                    <div className="grid grid-cols-2 gap-1">
-                      {places.slice(4, 8).map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => handleMarkerClick(p)}
-                          className="text-xxs text-white bg-white/5 rounded px-2 py-1 hover:bg-white/10 text-left"
-                        >
-                          {p.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-semibold text-slate-400 mb-1">Facilities</p>
-                    <div className="grid grid-cols-2 gap-1">
-                      {places.slice(8, 12).map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => handleMarkerClick(p)}
-                          className="text-xxs text-white bg-white/5 rounded px-2 py-1 hover:bg-white/10 text-left"
-                        >
-                          {p.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              {/* NOTES SECTION */}
-              <section className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <h2 className="text-sm font-bold text-white mb-2">Notes</h2>
-                <ul className="text-xxs text-slate-300 space-y-1 list-disc pl-4">
-                  <li>Optimize your route selection by picking start and destination pins</li>
-                  <li>A* algorithm finds the shortest path between locations</li>
-                  <li>Use Swap to reverse start/destination, Reset to clear</li>
-                </ul>
-              </section>
+                </section>
+              )}
             </div>
           </aside>
         </div>
